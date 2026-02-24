@@ -1,0 +1,24 @@
+[project]
+name = "quant-trading"
+version = "0.1.0"
+description = "Personal crypto quant trading MVP engine"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "httpx>=0.27.0",
+  "pydantic>=2.8.2",
+  "pydantic-settings>=2.4.0",
+  "SQLAlchemy>=2.0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
