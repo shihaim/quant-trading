@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from trader.data.models import BotConfig, TimeframeConfig
 from trader.utils.timeframes import SUPPORTED_TIMEFRAMES
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -32,12 +35,14 @@ class ConfigRepo:
 
     def load(self) -> RuntimeConfig:
         """bot_config(id=1)를 읽고 없으면 기본값으로 생성해 반환한다."""
+        logger.debug("config_load start")
         row = self.session.execute(select(BotConfig).where(BotConfig.id == 1)).scalar_one_or_none()
         if row is None:
             row = BotConfig(id=1)
             self.session.add(row)
             self.session.commit()
             self.session.refresh(row)
+            logger.info("config_init_created id=%s", row.id)
 
         active_timeframe = self.session.execute(
             select(TimeframeConfig)
@@ -51,7 +56,7 @@ class ConfigRepo:
         markets = json.loads(row.markets_json or "[]")
         target_exposure_pct = self._sanitize_target_exposure(row.target_exposure_pct)
         daily_loss_basis = self._sanitize_daily_loss_basis(getattr(row, "daily_loss_basis", None))
-        return RuntimeConfig(
+        cfg = RuntimeConfig(
             is_enabled=bool(row.is_enabled),
             timeframe=timeframe,
             markets=markets,
@@ -61,6 +66,17 @@ class ConfigRepo:
             max_per_market_exposure_pct=Decimal(row.max_per_market_exposure_pct),
             target_exposure_pct=target_exposure_pct,
         )
+        logger.info(
+            "config_loaded enabled=%s timeframe=%s markets=%s target_exposure_pct=%s "
+            "daily_loss_basis=%s max_daily_loss_pct=%s",
+            cfg.is_enabled,
+            cfg.timeframe,
+            cfg.markets,
+            cfg.target_exposure_pct,
+            cfg.daily_loss_basis,
+            cfg.max_daily_loss_pct,
+        )
+        return cfg
 
     @staticmethod
     def _sanitize_target_exposure(raw: Decimal | str | float | int | None) -> Decimal:

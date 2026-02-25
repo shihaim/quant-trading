@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from datetime import datetime, timezone
@@ -14,6 +15,8 @@ from trader.data.models import Fill, Order
 from trader.exchange.upbit_client import UpbitClient
 from trader.trading.error_handling import OrderValidationError, classify_exception
 from trader.trading.order_states import LOCAL_OPEN_STATES, UPBIT_TO_LOCAL
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionEngine:
@@ -34,6 +37,13 @@ class ExecutionEngine:
         self.retry_backoff_seconds = retry_backoff_seconds
         self.trade_mode = trade_mode.upper()
         self.allowed_markets = set(allowed_markets or [])
+        logger.info(
+            "execution_init mode=%s max_submit_retries=%s retry_backoff_seconds=%s allowed_markets=%s",
+            self.trade_mode,
+            self.max_submit_retries,
+            self.retry_backoff_seconds,
+            sorted(self.allowed_markets) if self.allowed_markets else [],
+        )
 
     def place_target_order(
         self,
@@ -45,7 +55,16 @@ class ExecutionEngine:
     ) -> Order | None:
         """현재/목표 수량 차이를 기준으로 주문을 생성하고 모드별로 처리한다."""
         delta = target_qty - current_qty
+        logger.info(
+            "execution_place_target_start market=%s current_qty=%s target_qty=%s delta=%s ref_price=%s",
+            market,
+            current_qty,
+            target_qty,
+            delta,
+            ref_price,
+        )
         if abs(delta) < Decimal("0.00000001"):
+            logger.info("execution_place_target_skip market=%s reason=no_delta", market)
             return None
         if self.allowed_markets and market not in self.allowed_markets:
             order = Order(
@@ -69,6 +88,13 @@ class ExecutionEngine:
             self.session.add(order)
             self.session.commit()
             self.session.refresh(order)
+            logger.warning(
+                "execution_place_target_rejected market=%s side=%s error_class=%s message=%s",
+                order.market,
+                order.side,
+                order.error_class,
+                order.last_error,
+            )
             return order
 
         side = "bid" if delta > 0 else "ask"
@@ -77,6 +103,12 @@ class ExecutionEngine:
 
         existing = self.session.scalar(select(Order).where(Order.client_order_id == client_order_id))
         if existing:
+            logger.info(
+                "execution_place_target_reuse client_order_id=%s market=%s state=%s",
+                existing.client_order_id,
+                existing.market,
+                existing.state,
+            )
             return self.sync_order(existing)
 
         open_order = self.session.scalar(
@@ -85,6 +117,13 @@ class ExecutionEngine:
             .order_by(Order.created_at.desc())
         )
         if open_order:
+            logger.info(
+                "execution_place_target_use_open_order market=%s side=%s order_id=%s state=%s",
+                open_order.market,
+                open_order.side,
+                open_order.id,
+                open_order.state,
+            )
             return self.sync_order(open_order)
 
         order = Order(
@@ -98,6 +137,13 @@ class ExecutionEngine:
         )
         self.session.add(order)
         self.session.commit()
+        logger.info(
+            "execution_order_created order_id=%s market=%s side=%s client_order_id=%s",
+            order.id,
+            order.market,
+            order.side,
+            order.client_order_id,
+        )
 
         try:
             chance, price_str, volume_str = self.validate_order_params(order, ref_price=ref_price, volume=volume)
@@ -106,11 +152,23 @@ class ExecutionEngine:
                 order.exchange_response_raw = json.dumps({"mode": "SHADOW", "chance": chance}, ensure_ascii=False)
                 self.session.commit()
                 self.session.refresh(order)
+                logger.info(
+                    "execution_submit_shadow_ok order_id=%s market=%s side=%s",
+                    order.id,
+                    order.market,
+                    order.side,
+                )
                 return order
             if self.trade_mode == "TEST":
                 return self._submit_test(order=order, price_str=price_str, volume_str=volume_str, chance=chance)
             return self._submit_real_with_recovery(order=order, price_str=price_str, volume_str=volume_str, chance=chance)
         except Exception as exc:
+            logger.exception(
+                "execution_place_target_exception order_id=%s market=%s side=%s",
+                order.id,
+                order.market,
+                order.side,
+            )
             self._persist_error(order, exc, default_state="REJECTED")
             return order
 
@@ -129,16 +187,35 @@ class ExecutionEngine:
         total_krw = price * volume_adj
 
         if min_total > 0 and total_krw < min_total:
+            logger.warning(
+                "execution_order_validation_fail order_id=%s market=%s side=%s total_krw=%s min_total=%s",
+                order.id,
+                order.market,
+                order.side,
+                total_krw,
+                min_total,
+            )
             raise OrderValidationError(f"below_min_total: {total_krw} < {min_total}")
 
         order.requested_price = price
         order.requested_volume = volume_adj
         self.session.commit()
+        logger.info(
+            "execution_order_validated order_id=%s market=%s side=%s price=%s volume=%s tick=%s min_total=%s",
+            order.id,
+            order.market,
+            order.side,
+            price,
+            volume_adj,
+            tick,
+            min_total,
+        )
         return chance, self._to_exchange_str(price), self._to_exchange_str(volume_adj)
 
     def sync_order(self, order: Order) -> Order:
         """거래소 주문 상태를 조회해 로컬 주문/체결을 동기화한다."""
         if not order.upbit_uuid:
+            logger.debug("execution_sync_skip_no_uuid order_id=%s client_order_id=%s", order.id, order.client_order_id)
             return order
         status = self.upbit_client.get_order(order.upbit_uuid)
         order.state = self._map_state(status.get("state"))
@@ -150,32 +227,49 @@ class ExecutionEngine:
             order.state = "PARTIAL"
         self.session.commit()
         self.session.refresh(order)
+        logger.info(
+            "execution_sync_done order_id=%s market=%s side=%s state=%s executed=%s requested=%s upbit_uuid=%s",
+            order.id,
+            order.market,
+            order.side,
+            order.state,
+            executed,
+            requested,
+            order.upbit_uuid,
+        )
         return order
 
     def sync_local_open_orders(self) -> list[Order]:
         """로컬 OPEN 계열 주문들을 일괄 동기화한다."""
         rows = self.session.scalars(select(Order).where(Order.state.in_(LOCAL_OPEN_STATES))).all()
+        logger.info("execution_sync_open_orders_start count=%s", len(rows))
         synced: list[Order] = []
         for row in rows:
             try:
                 synced.append(self.sync_order(row))
             except Exception:
+                logger.exception("execution_sync_open_orders_row_failed order_id=%s", row.id)
                 continue
+        logger.info("execution_sync_open_orders_done synced=%s", len(synced))
         return synced
 
     def cancel_order(self, order: Order) -> Order:
         """미체결 주문을 취소하고 로컬 상태를 갱신한다."""
         if not order.upbit_uuid:
+            logger.debug("execution_cancel_skip_no_uuid order_id=%s", order.id)
             return order
         try:
+            logger.info("execution_cancel_start order_id=%s upbit_uuid=%s", order.id, order.upbit_uuid)
             payload = self.upbit_client.cancel_order(order.upbit_uuid)
             order.state = self._map_state(payload.get("state"))
             order.exchange_response_raw = json.dumps({"cancel_response": payload}, ensure_ascii=False)
             self._upsert_fills(order=order, status=payload)
             self.session.commit()
             self.session.refresh(order)
+            logger.info("execution_cancel_done order_id=%s state=%s", order.id, order.state)
             return order
         except Exception as exc:
+            logger.exception("execution_cancel_exception order_id=%s", order.id)
             self._persist_error(order, exc, default_state=order.state or "ERROR_NEEDS_REVIEW")
             return order
 
@@ -187,15 +281,24 @@ class ExecutionEngine:
         rows = self.session.scalars(query).all()
         if limit is not None:
             rows = rows[: max(limit, 0)]
+        logger.info("execution_cancel_open_orders_start market=%s limit=%s count=%s", market, limit, len(rows))
         canceled: list[Order] = []
         for row in rows:
             canceled.append(self.cancel_order(row))
+        logger.info("execution_cancel_open_orders_done canceled=%s", len(canceled))
         return canceled
 
     def _submit_real_with_recovery(self, order: Order, price_str: str, volume_str: str, chance: dict) -> Order:
         """실주문은 1회 전송 후, 실패 시 재전송 없이 identifier 조회 복구만 수행한다."""
         if not order.upbit_identifier:
             order.upbit_identifier = self._new_upbit_identifier(order.market, order.side)
+        logger.info(
+            "execution_submit_real_start order_id=%s market=%s side=%s identifier=%s",
+            order.id,
+            order.market,
+            order.side,
+            order.upbit_identifier,
+        )
         try:
             payload = self.upbit_client.create_order(
                 market=order.market,
@@ -216,6 +319,12 @@ class ExecutionEngine:
             )
             self.session.commit()
             self.session.refresh(order)
+            logger.info(
+                "execution_submit_real_done order_id=%s upbit_uuid=%s state=%s",
+                order.id,
+                order.upbit_uuid,
+                order.state,
+            )
             return self.sync_order(order)
         except Exception as exc:
             info = classify_exception(exc)
@@ -223,20 +332,35 @@ class ExecutionEngine:
             order.error_class = info.error_class
             order.last_error = info.message
             self.session.commit()
+            logger.warning(
+                "execution_submit_real_failed order_id=%s error_class=%s message=%s",
+                order.id,
+                order.error_class,
+                order.last_error,
+            )
 
         recovered = self._recover_order(order)
         if recovered:
+            logger.info("execution_submit_real_recovered order_id=%s upbit_uuid=%s", recovered.id, recovered.upbit_uuid)
             return recovered
 
         order.state = "ERROR_NEEDS_REVIEW"
         self.session.commit()
         self.session.refresh(order)
+        logger.error("execution_submit_real_needs_manual_review order_id=%s", order.id)
         return order
 
     def _submit_test(self, order: Order, price_str: str, volume_str: str, chance: dict) -> Order:
         """테스트 모드에서는 /v1/orders/test만 호출하고 결과를 주문 원장에 저장한다."""
         if not order.upbit_identifier:
             order.upbit_identifier = self._new_upbit_identifier(order.market, order.side)
+        logger.info(
+            "execution_submit_test_start order_id=%s market=%s side=%s identifier=%s",
+            order.id,
+            order.market,
+            order.side,
+            order.upbit_identifier,
+        )
         try:
             payload = self.upbit_client.test_order(
                 market=order.market,
@@ -255,8 +379,10 @@ class ExecutionEngine:
             )
             self.session.commit()
             self.session.refresh(order)
+            logger.info("execution_submit_test_done order_id=%s state=%s", order.id, order.state)
             return order
         except Exception as exc:
+            logger.exception("execution_submit_test_exception order_id=%s", order.id)
             self._persist_error(order, exc, default_state="REJECTED")
             return order
 
@@ -265,6 +391,13 @@ class ExecutionEngine:
         if not order.upbit_identifier:
             return None
         for attempt in range(1, self.max_submit_retries + 1):
+            logger.info(
+                "execution_recover_attempt order_id=%s attempt=%s/%s identifier=%s",
+                order.id,
+                attempt,
+                self.max_submit_retries,
+                order.upbit_identifier,
+            )
             try:
                 payload = self.upbit_client.get_order_by_identifier(order.upbit_identifier)
                 if payload:
@@ -274,6 +407,13 @@ class ExecutionEngine:
                     self._upsert_fills(order=order, status=payload)
                     self.session.commit()
                     self.session.refresh(order)
+                    logger.info(
+                        "execution_recover_success order_id=%s attempt=%s upbit_uuid=%s state=%s",
+                        order.id,
+                        attempt,
+                        order.upbit_uuid,
+                        order.state,
+                    )
                     return order
             except Exception as exc:
                 info = classify_exception(exc)
@@ -281,6 +421,13 @@ class ExecutionEngine:
                 order.last_error = info.message
                 order.retry_count = attempt
                 self.session.commit()
+                logger.warning(
+                    "execution_recover_failed order_id=%s attempt=%s error_class=%s message=%s",
+                    order.id,
+                    attempt,
+                    order.error_class,
+                    order.last_error,
+                )
             time.sleep(self.retry_backoff_seconds * attempt)
         return None
 
@@ -301,6 +448,15 @@ class ExecutionEngine:
         )
         self.session.commit()
         self.session.refresh(order)
+        logger.warning(
+            "execution_error_persisted order_id=%s market=%s side=%s state=%s error_class=%s message=%s",
+            order.id,
+            order.market,
+            order.side,
+            order.state,
+            order.error_class,
+            order.last_error,
+        )
 
     @staticmethod
     def _build_client_order_id(idempotency_key: str, side: str) -> str:
@@ -386,12 +542,16 @@ class ExecutionEngine:
 
     def _upsert_fills(self, order: Order, status: dict) -> None:
         """주문 조회 응답의 체결 내역을 중복 없이 DB에 반영한다."""
+        inserted = 0
+        skipped = 0
         for trade in status.get("trades", []):
             trade_id = str(trade.get("uuid") or trade.get("trade_uuid") or "")
             if not trade_id:
+                skipped += 1
                 continue
             exists = self.session.scalar(select(Fill).where(Fill.trade_id == trade_id))
             if exists:
+                skipped += 1
                 continue
             executed_at = self._parse_trade_time(trade)
             self.session.add(
@@ -403,6 +563,15 @@ class ExecutionEngine:
                     fee=Decimal(str(trade.get("fee", "0"))),
                     executed_at=executed_at,
                 )
+            )
+            inserted += 1
+        if inserted or skipped:
+            logger.info(
+                "execution_fills_upserted order_id=%s market=%s inserted=%s skipped=%s",
+                order.id,
+                order.market,
+                inserted,
+                skipped,
             )
 
     @staticmethod

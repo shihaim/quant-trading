@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -7,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trader.data.models import Fill, Order, PaperWallet, Position
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -25,11 +28,14 @@ class PortfolioService:
 
     def get_position(self, market: str) -> Position | None:
         """마켓의 현재 포지션을 조회한다."""
-        return self.session.get(Position, market)
+        row = self.session.get(Position, market)
+        logger.debug("portfolio_get_position market=%s found=%s", market, row is not None)
+        return row
 
     def upsert_position(self, market: str, qty: Decimal, avg_price: Decimal) -> Position:
         """포지션을 생성 또는 갱신하고 최신 상태를 반환한다."""
         row = self.session.get(Position, market)
+        created = row is None
         if row is None:
             row = Position(market=market, qty=qty, avg_price=avg_price)
             self.session.add(row)
@@ -38,6 +44,13 @@ class PortfolioService:
             row.avg_price = avg_price
         self.session.commit()
         self.session.refresh(row)
+        logger.debug(
+            "portfolio_upsert_position market=%s created=%s qty=%s avg_price=%s",
+            market,
+            created,
+            row.qty,
+            row.avg_price,
+        )
         return row
 
     def get_or_create_paper_wallet(self, initial_cash_krw: Decimal) -> PaperWallet:
@@ -48,6 +61,7 @@ class PortfolioService:
             self.session.add(wallet)
             self.session.commit()
             self.session.refresh(wallet)
+            logger.info("portfolio_wallet_created id=%s cash_krw=%s", wallet.id, wallet.cash_krw)
         return wallet
 
     def apply_unapplied_fills(self, order: Order, use_paper_wallet: bool = False, initial_cash_krw: Decimal = Decimal("0")) -> int:
@@ -56,6 +70,7 @@ class PortfolioService:
             select(Fill).where(Fill.order_id == order.id, Fill.is_applied.is_(False)).order_by(Fill.executed_at.asc(), Fill.id.asc())
         ).all()
         if not fills:
+            logger.debug("portfolio_apply_fills_skip order_id=%s reason=no_unapplied_fills", order.id)
             return 0
         position = self.session.get(Position, order.market)
         if position is None:
@@ -68,6 +83,14 @@ class PortfolioService:
                 self._apply_fill_to_wallet(wallet, order.side, Decimal(fill.price), Decimal(fill.volume), Decimal(fill.fee))
             fill.is_applied = True
         self.session.commit()
+        logger.info(
+            "portfolio_apply_fills_done order_id=%s market=%s side=%s applied=%s use_paper_wallet=%s",
+            order.id,
+            order.market,
+            order.side,
+            len(fills),
+            use_paper_wallet,
+        )
         return len(fills)
 
     @staticmethod
@@ -126,6 +149,7 @@ class PortfolioService:
             row.unrealized_pnl = unrealized
             total += unrealized
         self.session.commit()
+        logger.info("portfolio_unrealized_updated positions=%s total_unrealized=%s", len(rows), total)
         return total
 
     def total_realized_pnl(self, markets: list[str] | None = None) -> Decimal:
@@ -137,6 +161,7 @@ class PortfolioService:
             if allowed and row.market not in allowed:
                 continue
             total += Decimal(row.realized_pnl)
+        logger.debug("portfolio_total_realized markets=%s total=%s", sorted(allowed) if allowed else [], total)
         return total
 
     def total_unrealized_pnl(self, markets: list[str] | None = None) -> Decimal:
@@ -148,4 +173,5 @@ class PortfolioService:
             if allowed and row.market not in allowed:
                 continue
             total += Decimal(row.unrealized_pnl)
+        logger.debug("portfolio_total_unrealized markets=%s total=%s", sorted(allowed) if allowed else [], total)
         return total

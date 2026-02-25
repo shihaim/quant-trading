@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -12,6 +13,8 @@ from trader.exchange.upbit_client import UpbitClient
 from trader.trading.execution import ExecutionEngine
 from trader.trading.order_states import UPBIT_TO_LOCAL
 from trader.trading.portfolio import PortfolioService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -39,13 +42,24 @@ class ReconcileService:
 
     def reconcile_all(self, markets: list[str], mark_prices: dict[str, Decimal]) -> ReconcileSnapshot:
         """계좌/미체결/주문체결을 일괄 동기화하고 총자산을 계산한다."""
+        logger.info("reconcile_all_start markets=%s mark_price_count=%s", markets, len(mark_prices))
         cash_krw, market_value = self._reconcile_accounts(markets=markets, mark_prices=mark_prices)
         self._reconcile_open_orders()
         synced = self.execution.sync_local_open_orders()
+        applied_total = 0
         for order in synced:
-            self.portfolio.apply_unapplied_fills(order, use_paper_wallet=False)
+            applied_total += self.portfolio.apply_unapplied_fills(order, use_paper_wallet=False)
         self.portfolio.update_unrealized_pnl(mark_prices=mark_prices)
-        return ReconcileSnapshot(cash_krw=cash_krw, market_value=market_value, total_equity=cash_krw + market_value)
+        snapshot = ReconcileSnapshot(cash_krw=cash_krw, market_value=market_value, total_equity=cash_krw + market_value)
+        logger.info(
+            "reconcile_all_done cash_krw=%s market_value=%s total_equity=%s synced_orders=%s fills_applied=%s",
+            snapshot.cash_krw,
+            snapshot.market_value,
+            snapshot.total_equity,
+            len(synced),
+            applied_total,
+        )
+        return snapshot
 
     def _reconcile_accounts(self, markets: list[str], mark_prices: dict[str, Decimal]) -> tuple[Decimal, Decimal]:
         """거래소 잔고를 읽어 포지션을 맞추고 현금/평가액을 계산한다."""
@@ -62,11 +76,20 @@ class ReconcileService:
             self.portfolio.upsert_position(market=market, qty=qty, avg_price=avg_price)
             mark = mark_prices.get(market, avg_price)
             market_value += qty * mark
+        logger.debug(
+            "reconcile_accounts_done markets=%s cash_krw=%s market_value=%s account_count=%s",
+            markets,
+            cash_krw,
+            market_value,
+            len(accounts),
+        )
         return cash_krw, market_value
 
     def _reconcile_open_orders(self) -> None:
         """거래소 미체결 주문을 로컬 orders 테이블과 정합화한다."""
         rows = self.upbit_client.get_open_orders()
+        created = 0
+        updated = 0
         for raw in rows:
             upbit_uuid = str(raw.get("uuid") or "")
             if not upbit_uuid:
@@ -92,6 +115,7 @@ class ReconcileService:
                     created_at=self._parse_time(raw.get("created_at")),
                 )
                 self.session.add(order)
+                created += 1
             else:
                 if upbit_identifier:
                     order.upbit_identifier = upbit_identifier[:64]
@@ -101,7 +125,14 @@ class ReconcileService:
                     order.requested_price = Decimal(str(raw.get("price", "0")))
                 if raw.get("volume") is not None:
                     order.requested_volume = Decimal(str(raw.get("volume", "0")))
+                updated += 1
         self.session.commit()
+        logger.info(
+            "reconcile_open_orders_done fetched=%s created=%s updated=%s",
+            len(rows),
+            created,
+            updated,
+        )
 
     @staticmethod
     def _map_state(raw_state: str | None) -> str:

@@ -101,17 +101,23 @@ class TradingScheduler:
                 next_at.isoformat(),
             )
         logger.info(
-            "scheduler_config_reload done enabled=%s timeframe=%s markets=%s next_run_at=%s",
+            "scheduler_config_reload done enabled=%s timeframe=%s markets=%s daily_loss_basis=%s next_run_at=%s",
             cfg.is_enabled,
             cfg.timeframe,
             cfg.markets,
+            cfg.daily_loss_basis,
             next_at.isoformat(),
         )
         return SchedulerState(runtime_config=cfg, next_run_at=next_at, last_config_reload_at=now)
 
     def _run_once(self, cfg: RuntimeConfig) -> None:
         """한 번의 봉 마감 사이클에서 데이터/신호/주문/반영을 수행한다."""
-        logger.info("scheduler_run_once start timeframe=%s markets=%s", cfg.timeframe, cfg.markets)
+        logger.info(
+            "scheduler_run_once start timeframe=%s markets=%s daily_loss_basis=%s",
+            cfg.timeframe,
+            cfg.markets,
+            cfg.daily_loss_basis,
+        )
         self.strategy.set_buy_target_exposure_pct(cfg.target_exposure_pct)
         logger.info("scheduler_strategy_target_exposure buy_target_exposure_pct=%s", cfg.target_exposure_pct)
         market_to_candles: dict[str, list] = {}
