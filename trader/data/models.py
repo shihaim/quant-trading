@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from trader.data.db import Base
@@ -114,6 +114,21 @@ class Position(Base):
     avg_price: Mapped[Decimal] = mapped_column(Numeric(24, 8), default=Decimal("0"))
     realized_pnl: Mapped[Decimal] = mapped_column(Numeric(24, 8), default=Decimal("0"))
     unrealized_pnl: Mapped[Decimal] = mapped_column(Numeric(24, 8), default=Decimal("0"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class DailyEquity(Base):
+    """일별 기준 자산/손익 스냅샷."""
+
+    __tablename__ = "daily_equity"
+
+    date_utc: Mapped[date] = mapped_column(Date, primary_key=True)
+    start_equity: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
+    last_equity: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
+    realized_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
+    unrealized_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
+    daily_pnl_abs: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
+    daily_pnl_pct: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 

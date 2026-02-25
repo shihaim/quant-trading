@@ -21,6 +21,7 @@ TABLE_DOCS_EN = {
     "orders": "Order intents and exchange status tracking.",
     "fills": "Trade fills linked to orders (idempotent by trade_id).",
     "positions": "Current position state per market.",
+    "daily_equity": "Daily equity baseline and PnL snapshots (UTC date keyed).",
     "paper_wallet": "Paper-trading cash wallet.",
 }
 
@@ -87,6 +88,16 @@ COLUMN_DOCS_EN = {
         "avg_price": "Average entry price.",
         "realized_pnl": "Accumulated realized PnL.",
         "unrealized_pnl": "Current unrealized PnL snapshot.",
+        "updated_at": "Last update timestamp.",
+    },
+    "daily_equity": {
+        "date_utc": "UTC date key.",
+        "start_equity": "Start-of-day equity baseline.",
+        "last_equity": "Latest equity snapshot for the day.",
+        "realized_pnl": "Accumulated realized PnL snapshot.",
+        "unrealized_pnl": "Current unrealized PnL snapshot.",
+        "daily_pnl_abs": "Absolute day PnL from baseline.",
+        "daily_pnl_pct": "Day PnL ratio from baseline.",
         "updated_at": "Last update timestamp.",
     },
     "paper_wallet": {
@@ -268,6 +279,21 @@ KST_VIEW_SQL = {
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM positions
     """,
+    "daily_equity_kst": """
+        CREATE VIEW daily_equity_kst AS
+        SELECT
+            date_utc,
+            datetime(date_utc || ' 00:00:00', '+9 hours') AS date_kst,
+            start_equity,
+            last_equity,
+            realized_pnl,
+            unrealized_pnl,
+            daily_pnl_abs,
+            daily_pnl_pct,
+            updated_at AS updated_at_utc,
+            datetime(updated_at, '+9 hours') AS updated_at_kst
+        FROM daily_equity
+    """,
     "paper_wallet_kst": """
         CREATE VIEW paper_wallet_kst AS
         SELECT
@@ -329,15 +355,36 @@ def run_lightweight_migrations() -> None:
             )
             conn.execute(text("CREATE INDEX ix_timeframe_config_timeframe ON timeframe_config(timeframe)"))
             conn.execute(text("CREATE INDEX ix_timeframe_config_is_enabled ON timeframe_config(is_enabled)"))
+        if "daily_equity" not in table_names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE daily_equity (
+                        date_utc DATE PRIMARY KEY,
+                        start_equity NUMERIC(28,8) NOT NULL DEFAULT 0,
+                        last_equity NUMERIC(28,8) NOT NULL DEFAULT 0,
+                        realized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
+                        unrealized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
+                        daily_pnl_abs NUMERIC(28,8) NOT NULL DEFAULT 0,
+                        daily_pnl_pct NUMERIC(28,8) NOT NULL DEFAULT 0,
+                        updated_at DATETIME
+                    )
+                    """
+                )
+            )
 
         existing = conn.execute(text("SELECT timeframe FROM timeframe_config")).fetchall()
         existing_timeframes = {row[0] for row in existing}
         for timeframe in SUPPORTED_TIMEFRAMES:
             if timeframe not in existing_timeframes:
                 conn.execute(
-                    text("INSERT INTO timeframe_config (timeframe, is_enabled) VALUES (:timeframe, 0)"),
+                    text(
+                        "INSERT INTO timeframe_config (timeframe, is_enabled, updated_at) "
+                        "VALUES (:timeframe, 0, CURRENT_TIMESTAMP)"
+                    ),
                     {"timeframe": timeframe},
                 )
+        conn.execute(text("UPDATE timeframe_config SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"))
 
         enabled_count = conn.execute(text("SELECT COUNT(*) FROM timeframe_config WHERE is_enabled = 1")).scalar_one()
         if enabled_count == 0:

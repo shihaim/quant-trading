@@ -44,6 +44,7 @@ class ReconcileService:
         synced = self.execution.sync_local_open_orders()
         for order in synced:
             self.portfolio.apply_unapplied_fills(order, use_paper_wallet=False)
+        self.portfolio.update_unrealized_pnl(mark_prices=mark_prices)
         return ReconcileSnapshot(cash_krw=cash_krw, market_value=market_value, total_equity=cash_krw + market_value)
 
     def _reconcile_accounts(self, markets: list[str], mark_prices: dict[str, Decimal]) -> tuple[Decimal, Decimal]:

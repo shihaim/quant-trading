@@ -110,3 +110,42 @@ class PortfolioService:
         for p in rows:
             market_value += Decimal(p.qty) * mark_prices.get(p.market, Decimal("0"))
         return PortfolioSnapshot(cash_krw=cash_krw, market_value=market_value, total_equity=cash_krw + market_value)
+
+    def update_unrealized_pnl(self, mark_prices: dict[str, Decimal]) -> Decimal:
+        """현재 마크가격 기준으로 포지션 평가손익을 갱신하고 합계를 반환한다."""
+        total = Decimal("0")
+        rows = self.session.scalars(select(Position)).all()
+        for row in rows:
+            qty = Decimal(row.qty)
+            if qty <= 0:
+                row.unrealized_pnl = Decimal("0")
+                continue
+            avg_price = Decimal(row.avg_price)
+            mark_price = mark_prices.get(row.market, avg_price)
+            unrealized = qty * (mark_price - avg_price)
+            row.unrealized_pnl = unrealized
+            total += unrealized
+        self.session.commit()
+        return total
+
+    def total_realized_pnl(self, markets: list[str] | None = None) -> Decimal:
+        """현재 저장된 포지션의 누적 실현손익 합계를 반환한다."""
+        rows = self.session.scalars(select(Position)).all()
+        allowed = set(markets or [])
+        total = Decimal("0")
+        for row in rows:
+            if allowed and row.market not in allowed:
+                continue
+            total += Decimal(row.realized_pnl)
+        return total
+
+    def total_unrealized_pnl(self, markets: list[str] | None = None) -> Decimal:
+        """현재 저장된 포지션의 평가손익 합계를 반환한다."""
+        rows = self.session.scalars(select(Position)).all()
+        allowed = set(markets or [])
+        total = Decimal("0")
+        for row in rows:
+            if allowed and row.market not in allowed:
+                continue
+            total += Decimal(row.unrealized_pnl)
+        return total

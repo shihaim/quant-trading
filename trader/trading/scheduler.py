@@ -15,6 +15,7 @@ from trader.exchange.upbit_client import UpbitClient
 from trader.notify.telegram import TelegramNotifier
 from trader.trading.execution import ExecutionEngine
 from trader.trading.paper_execution import PaperExecutionEngine
+from trader.trading.pnl import PnLService
 from trader.trading.portfolio import PortfolioService
 from trader.trading.reconcile import ReconcileService
 from trader.trading.risk import RiskEngine
@@ -57,6 +58,7 @@ class TradingScheduler:
         self.strategy = EmaCrossStrategy()
         self.risk = RiskEngine()
         self.portfolio = PortfolioService(session)
+        self.pnl = PnLService(session)
         if self.is_paper:
             self.execution = PaperExecutionEngine(session, fee_rate=Decimal(str(settings.default_fee_rate)))
             self.reconcile = None
@@ -145,13 +147,35 @@ class TradingScheduler:
             snapshot.cash_krw,
             snapshot.market_value,
         )
+        if self.is_paper:
+            unrealized_total = self.portfolio.update_unrealized_pnl(mark_prices=mark_prices)
+        else:
+            unrealized_total = self.portfolio.total_unrealized_pnl(markets=cfg.markets)
+        realized_total = self.portfolio.total_realized_pnl(markets=cfg.markets)
+        daily_snapshot = self.pnl.update_daily_snapshot(
+            current_equity=total_equity,
+            realized_pnl=realized_total,
+            unrealized_pnl=unrealized_total,
+        )
+        daily_pnl_pct = Decimal(daily_snapshot.daily_pnl_pct)
+        logger.info(
+            "scheduler_daily_pnl date_utc=%s start_equity=%s last_equity=%s daily_pnl_abs=%s daily_pnl_pct=%s "
+            "realized_pnl=%s unrealized_pnl=%s",
+            daily_snapshot.date_utc,
+            daily_snapshot.start_equity,
+            daily_snapshot.last_equity,
+            daily_snapshot.daily_pnl_abs,
+            daily_snapshot.daily_pnl_pct,
+            daily_snapshot.realized_pnl,
+            daily_snapshot.unrealized_pnl,
+        )
         for market in cfg.markets:
             candles = market_to_candles.get(market, [])
             if not candles:
                 continue
             position = self.portfolio.get_position(market)
             signal = self.strategy.evaluate(candles, position)
-            decision = self.risk.evaluate(signal=signal, config=cfg, daily_pnl_pct=Decimal("0"))
+            decision = self.risk.evaluate(signal=signal, config=cfg, daily_pnl_pct=daily_pnl_pct)
             if decision.halted:
                 self.notifier.send(f"HALT {market}: {decision.reason}")
                 logger.warning("scheduler_halt market=%s reason=%s", market, decision.reason)
