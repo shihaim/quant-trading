@@ -50,6 +50,11 @@ In `REAL/TEST/SHADOW` mode, both keys are required:
 - `TELEGRAM_BOT_TOKEN` (optional)
 - `TELEGRAM_CHAT_ID` (optional)
 - `LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, default: `INFO`)
+- `LOG_DIR` (default: `logs`)
+- `APP_INFO_LOG_FILE` (default: `application-info.log`, stores `INFO`/`WARNING`)
+- `APP_ERROR_LOG_FILE` (default: `application-error.log`, stores `ERROR`/`CRITICAL`)
+- `LOG_ROTATE_MAX_BYTES` (default: `10485760`, 10MB)
+- `LOG_ROTATE_BACKUP_COUNT` (default: `10`)
 
 ## Runtime Config (DB)
 
@@ -63,6 +68,14 @@ The `bot_config` row with `id=1` is reloaded during runtime:
 - `max_daily_loss_pct`
 - `max_total_exposure_pct`
 - `max_per_market_exposure_pct`
+- `min_rebalance_threshold_pct`: skip tiny exposure changes
+- `min_order_krw_buffer`: extra KRW buffer above minimum order notional
+- `fill_timeout_sec_entry`, `fill_timeout_sec_exit`, `fill_timeout_sec_rebalance`
+- `max_reprice_attempts_entry`, `max_reprice_attempts_exit`, `max_reprice_attempts_rebalance`
+- `reprice_step_bps`
+- `slippage_budget_entry_pct`, `slippage_budget_exit_pct`
+- `slippage_budget_breach_halt_count` (0 disables auto-halt)
+- `status_notify_interval_seconds`
 
 Active timeframe is selected from `timeframe_config`:
 
@@ -115,3 +128,11 @@ Notes:
 ## P2 Policy
 
 - PnL/risk-halt basis policy is documented in `docs/p2_design.md`.
+
+## P3 Execution Policy
+
+- `OrderPolicy` intent: `ENTRY`, `EXIT`, `REBALANCE`
+- tiny rebalance gate and order-notional buffer run before order submit
+- opposite-side open orders are canceled first (conflict policy Option A)
+- fill quality metrics are stored in `trade_metrics`
+- slippage budget breaches trigger alert, and optional auto-halt

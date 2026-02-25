@@ -56,7 +56,7 @@ class UpbitClient:
             except httpx.RequestError as exc:
                 elapsed_ms = (time.perf_counter() - started_at) * 1000
                 logger.warning(
-                    "upbit_request network_error method=%s path=%s attempt=%s/%s elapsed_ms=%.1f error=%s",
+                    "업비트 요청 네트워크 오류: method=%s path=%s attempt=%s/%s elapsed_ms=%.1f error=%s",
                     method,
                     path,
                     attempt,
@@ -82,7 +82,7 @@ class UpbitClient:
             status_code = resp.status_code
             if status_code in (429, 500, 502, 503, 504):
                 logger.warning(
-                    "upbit_request retryable_status method=%s path=%s status=%s attempt=%s/%s elapsed_ms=%.1f",
+                    "업비트 요청 재시도 가능 상태코드 수신: method=%s path=%s status=%s attempt=%s/%s elapsed_ms=%.1f",
                     method,
                     path,
                     status_code,
@@ -92,7 +92,7 @@ class UpbitClient:
                 )
                 if attempt >= self.retry_max:
                     logger.error(
-                        "upbit_request failed method=%s path=%s status=%s after_attempts=%s",
+                        "업비트 요청 최종 실패: method=%s path=%s status=%s after_attempts=%s",
                         method,
                         path,
                         status_code,
@@ -113,7 +113,7 @@ class UpbitClient:
 
             if resp.is_error:
                 logger.error(
-                    "upbit_request http_error method=%s path=%s status=%s attempt=%s elapsed_ms=%.1f",
+                    "업비트 요청 HTTP 오류: method=%s path=%s status=%s attempt=%s elapsed_ms=%.1f",
                     method,
                     path,
                     status_code,

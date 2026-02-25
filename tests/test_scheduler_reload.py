@@ -49,6 +49,7 @@ def test_reload_keeps_next_run_when_timeframe_unchanged():
         runtime_config=_cfg("15m"),
         next_run_at=datetime(2026, 2, 24, 5, 30, 3, tzinfo=timezone.utc),
         last_config_reload_at=datetime(2026, 2, 24, 5, 20, 0, tzinfo=timezone.utc),
+        next_status_notify_at=datetime(2026, 2, 24, 9, 0, 0, tzinfo=timezone.utc),
     )
     now = datetime(2026, 2, 24, 5, 25, 0, tzinfo=timezone.utc)
 
@@ -66,6 +67,7 @@ def test_reload_realigns_next_run_when_timeframe_changes():
         runtime_config=_cfg("15m"),
         next_run_at=datetime(2026, 2, 24, 5, 30, 3, tzinfo=timezone.utc),
         last_config_reload_at=datetime(2026, 2, 24, 5, 20, 0, tzinfo=timezone.utc),
+        next_status_notify_at=datetime(2026, 2, 24, 9, 0, 0, tzinfo=timezone.utc),
     )
     now = datetime(2026, 2, 24, 5, 25, 0, tzinfo=timezone.utc)
 

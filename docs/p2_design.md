@@ -45,4 +45,3 @@ This document defines how the scheduler computes daily PnL for risk-halt decisio
 - Halt condition:
   - `daily_pnl_pct <= -abs(max_daily_loss_pct)`
 - On halt, scheduler skips order creation and emits halt log/notification.
-

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -11,12 +11,12 @@ from trader.data.db import Base
 
 
 def utc_now() -> datetime:
-    """UTC 현재 시각을 반환한다."""
+    """Return current UTC timestamp."""
     return datetime.now(timezone.utc)
 
 
 class BotConfig(Base):
-    """봇 런타임 설정(ON/OFF, 타임프레임, 리스크 한도)."""
+    """Runtime trading configuration."""
 
     __tablename__ = "bot_config"
 
@@ -26,6 +26,19 @@ class BotConfig(Base):
     markets_json: Mapped[str] = mapped_column(Text, default='["KRW-BTC"]')
     target_exposure_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.10"))
     daily_loss_basis: Mapped[str] = mapped_column(String(32), default="TOTAL")
+    min_rebalance_threshold_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.05"))
+    min_order_krw_buffer: Mapped[Decimal] = mapped_column(Numeric(18, 8), default=Decimal("0"))
+    fill_timeout_sec_entry: Mapped[int] = mapped_column(Integer, default=10)
+    fill_timeout_sec_exit: Mapped[int] = mapped_column(Integer, default=4)
+    fill_timeout_sec_rebalance: Mapped[int] = mapped_column(Integer, default=10)
+    max_reprice_attempts_entry: Mapped[int] = mapped_column(Integer, default=2)
+    max_reprice_attempts_exit: Mapped[int] = mapped_column(Integer, default=1)
+    max_reprice_attempts_rebalance: Mapped[int] = mapped_column(Integer, default=1)
+    reprice_step_bps: Mapped[int] = mapped_column(Integer, default=10)
+    slippage_budget_entry_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.0005"))
+    slippage_budget_exit_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.0020"))
+    slippage_budget_breach_halt_count: Mapped[int] = mapped_column(Integer, default=0)
+    status_notify_interval_seconds: Mapped[int] = mapped_column(Integer, default=14400)
     max_daily_loss_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.02"))
     max_total_exposure_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.30"))
     max_per_market_exposure_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.10"))
@@ -33,7 +46,7 @@ class BotConfig(Base):
 
 
 class TimeframeConfig(Base):
-    """실행 가능한 타임프레임 목록과 활성 여부."""
+    """Enabled/disabled timeframe rows."""
 
     __tablename__ = "timeframe_config"
 
@@ -44,7 +57,7 @@ class TimeframeConfig(Base):
 
 
 class Candle(Base):
-    """마켓/타임프레임별 OHLCV 봉 데이터."""
+    """OHLCV candles by market/timeframe."""
 
     __tablename__ = "candles"
     __table_args__ = (
@@ -63,7 +76,7 @@ class Candle(Base):
 
 
 class Order(Base):
-    """주문 요청/상태 추적을 위한 주문 원장."""
+    """Order intent and exchange status."""
 
     __tablename__ = "orders"
 
@@ -74,6 +87,7 @@ class Order(Base):
     requested_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
     requested_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
     client_order_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    intent: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, index=True)
     upbit_identifier: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     upbit_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     state: Mapped[str] = mapped_column(String(16), default="NEW", index=True)
@@ -85,10 +99,11 @@ class Order(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     fills: Mapped[list[Fill]] = relationship(back_populates="order")
+    trade_metrics: Mapped[list[TradeMetric]] = relationship(back_populates="order")
 
 
 class Fill(Base):
-    """주문별 체결 내역(중복 방지 trade_id 포함)."""
+    """Fill rows for each order (idempotent by trade_id)."""
 
     __tablename__ = "fills"
     __table_args__ = (UniqueConstraint("trade_id", name="uq_fill_trade_id"),)
@@ -105,8 +120,29 @@ class Fill(Base):
     order: Mapped[Order] = relationship(back_populates="fills")
 
 
+class TradeMetric(Base):
+    """Execution quality metrics captured per order."""
+
+    __tablename__ = "trade_metrics"
+    __table_args__ = (UniqueConstraint("order_id", name="uq_trade_metrics_order_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    intent: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    intended_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
+    filled_vwap_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
+    slippage_abs: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
+    slippage_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
+    fee_abs: Mapped[Decimal] = mapped_column(Numeric(24, 8), default=Decimal("0"))
+    time_to_fill_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    partial_fill_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    order: Mapped[Order] = relationship(back_populates="trade_metrics")
+
+
 class Position(Base):
-    """현재 보유 수량/평단/손익 상태."""
+    """Current position state per market."""
 
     __tablename__ = "positions"
 
@@ -119,7 +155,7 @@ class Position(Base):
 
 
 class DailyEquity(Base):
-    """일별 기준 자산/손익 스냅샷."""
+    """Daily equity and pnl snapshot."""
 
     __tablename__ = "daily_equity"
 
@@ -135,7 +171,7 @@ class DailyEquity(Base):
 
 
 class PaperWallet(Base):
-    """페이퍼 모드 현금 지갑."""
+    """Paper cash wallet."""
 
     __tablename__ = "paper_wallet"
 

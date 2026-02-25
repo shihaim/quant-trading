@@ -8,12 +8,13 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR
 from typing import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from trader.data.models import Fill, Order
+from trader.data.models import Fill, Order, TradeMetric
 from trader.exchange.upbit_client import UpbitClient
 from trader.trading.error_handling import OrderValidationError, classify_exception
+from trader.trading.order_policy import OrderIntent, OrderPolicy, OrderPolicyConfig, resolve_intent
 from trader.trading.order_states import LOCAL_OPEN_STATES, UPBIT_TO_LOCAL
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class ExecutionEngine:
         self.retry_backoff_seconds = retry_backoff_seconds
         self.trade_mode = trade_mode.upper()
         self.allowed_markets = set(allowed_markets or [])
+        self.order_policy = OrderPolicy()
         logger.info(
             "execution_init mode=%s max_submit_retries=%s retry_backoff_seconds=%s allowed_markets=%s",
             self.trade_mode,
@@ -52,8 +54,14 @@ class ExecutionEngine:
         target_qty: Decimal,
         ref_price: Decimal,
         idempotency_key: str,
+        current_exposure_pct: Decimal | None = None,
+        target_exposure_pct: Decimal | None = None,
+        policy_config: OrderPolicyConfig | None = None,
+        min_order_krw_buffer: Decimal = Decimal("0"),
+        is_stop: bool = False,
+        is_hard_halt: bool = False,
     ) -> Order | None:
-        """현재/목표 수량 차이를 기준으로 주문을 생성하고 모드별로 처리한다."""
+        """Create and submit an order to move from current_qty to target_qty."""
         delta = target_qty - current_qty
         logger.info(
             "execution_place_target_start market=%s current_qty=%s target_qty=%s delta=%s ref_price=%s",
@@ -99,6 +107,33 @@ class ExecutionEngine:
 
         side = "bid" if delta > 0 else "ask"
         volume = abs(delta)
+
+        policy_cfg = policy_config or OrderPolicyConfig(
+            fill_timeout_sec_entry=0,
+            fill_timeout_sec_exit=0,
+            fill_timeout_sec_rebalance=0,
+            max_reprice_attempts_entry=1,
+            max_reprice_attempts_exit=1,
+            max_reprice_attempts_rebalance=1,
+            reprice_step_bps=10,
+            allow_market_fallback_on_exit=False,
+        )
+        current_exposure = Decimal(str(current_exposure_pct if current_exposure_pct is not None else current_qty))
+        target_exposure = Decimal(str(target_exposure_pct if target_exposure_pct is not None else target_qty))
+        intent = resolve_intent(current_exposure=current_exposure, target_exposure=target_exposure)
+        policy = self.order_policy.decide(intent=intent, cfg=policy_cfg, is_stop=is_stop, is_hard_halt=is_hard_halt)
+        logger.info(
+            "execution_order_policy intent=%s order_type=%s timeout=%s attempts=%s step_bps=%s fallback=%s",
+            policy.intent.value,
+            policy.order_type,
+            policy.fill_timeout_sec,
+            policy.max_reprice_attempts,
+            policy.reprice_step_bps,
+            policy.allow_market_fallback,
+        )
+
+        self._resolve_open_order_conflict(market=market, new_side=side)
+
         client_order_id = self._build_client_order_id(idempotency_key=idempotency_key, side=side)
 
         existing = self.session.scalar(select(Order).where(Order.client_order_id == client_order_id))
@@ -133,23 +168,30 @@ class ExecutionEngine:
             requested_price=ref_price,
             requested_volume=volume,
             client_order_id=client_order_id,
+            intent=policy.intent.value,
             state="NEW",
         )
         self.session.add(order)
         self.session.commit()
         logger.info(
-            "execution_order_created order_id=%s market=%s side=%s client_order_id=%s",
+            "execution_order_created order_id=%s market=%s side=%s client_order_id=%s intent=%s",
             order.id,
             order.market,
             order.side,
             order.client_order_id,
+            order.intent,
         )
 
         try:
-            chance, price_str, volume_str = self.validate_order_params(order, ref_price=ref_price, volume=volume)
+            chance, price_str, volume_str = self.validate_order_params(
+                order,
+                ref_price=ref_price,
+                volume=volume,
+                min_order_krw_buffer=min_order_krw_buffer,
+            )
             if self.trade_mode == "SHADOW":
                 order.state = "SHADOW"
-                order.exchange_response_raw = json.dumps({"mode": "SHADOW", "chance": chance}, ensure_ascii=False)
+                order.exchange_response_raw = json.dumps({"mode": "SHADOW", "chance": chance, "intent": order.intent}, ensure_ascii=False)
                 self.session.commit()
                 self.session.refresh(order)
                 logger.info(
@@ -161,7 +203,13 @@ class ExecutionEngine:
                 return order
             if self.trade_mode == "TEST":
                 return self._submit_test(order=order, price_str=price_str, volume_str=volume_str, chance=chance)
-            return self._submit_real_with_recovery(order=order, price_str=price_str, volume_str=volume_str, chance=chance)
+            return self._submit_with_policy(
+                order=order,
+                price=Decimal(price_str),
+                volume_str=volume_str,
+                chance=chance,
+                policy=policy,
+            )
         except Exception as exc:
             logger.exception(
                 "execution_place_target_exception order_id=%s market=%s side=%s",
@@ -172,8 +220,14 @@ class ExecutionEngine:
             self._persist_error(order, exc, default_state="REJECTED")
             return order
 
-    def validate_order_params(self, order: Order, ref_price: Decimal, volume: Decimal) -> tuple[dict, str, str]:
-        """chance 정보를 바탕으로 주문 파라미터를 사전 검증/정규화한다."""
+    def validate_order_params(
+        self,
+        order: Order,
+        ref_price: Decimal,
+        volume: Decimal,
+        min_order_krw_buffer: Decimal = Decimal("0"),
+    ) -> tuple[dict, str, str]:
+        """Validate parameters against chance rules."""
         if ref_price <= 0:
             raise OrderValidationError("price must be > 0")
         if volume <= 0:
@@ -185,17 +239,19 @@ class ExecutionEngine:
         price = self._adjust_price_by_tick(ref_price, tick, order.side)
         volume_adj = volume.quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
         total_krw = price * volume_adj
+        min_total_with_buffer = min_total + max(Decimal("0"), Decimal(str(min_order_krw_buffer)))
 
-        if min_total > 0 and total_krw < min_total:
+        if min_total_with_buffer > 0 and total_krw < min_total_with_buffer:
             logger.warning(
-                "execution_order_validation_fail order_id=%s market=%s side=%s total_krw=%s min_total=%s",
+                "execution_order_validation_fail order_id=%s market=%s side=%s total_krw=%s min_total=%s buffer=%s",
                 order.id,
                 order.market,
                 order.side,
                 total_krw,
                 min_total,
+                min_order_krw_buffer,
             )
-            raise OrderValidationError(f"below_min_total: {total_krw} < {min_total}")
+            raise OrderValidationError(f"below_min_total: {total_krw} < {min_total_with_buffer}")
 
         order.requested_price = price
         order.requested_volume = volume_adj
@@ -221,6 +277,7 @@ class ExecutionEngine:
         order.state = self._map_state(status.get("state"))
         order.exchange_response_raw = json.dumps(status, ensure_ascii=False)
         self._upsert_fills(order=order, status=status)
+        self._upsert_trade_metric(order)
         executed = Decimal(str(status.get("executed_volume", "0")))
         requested = Decimal(order.requested_volume or 0)
         if order.state == "OPEN" and executed > 0 and executed < requested:
@@ -248,7 +305,7 @@ class ExecutionEngine:
             try:
                 synced.append(self.sync_order(row))
             except Exception:
-                logger.exception("execution_sync_open_orders_row_failed order_id=%s", row.id)
+                logger.exception("로컬 미체결 주문 동기화 실패: order_id=%s", row.id)
                 continue
         logger.info("execution_sync_open_orders_done synced=%s", len(synced))
         return synced
@@ -265,11 +322,12 @@ class ExecutionEngine:
             order.exchange_response_raw = json.dumps({"cancel_response": payload}, ensure_ascii=False)
             self._upsert_fills(order=order, status=payload)
             self.session.commit()
+            self._upsert_trade_metric(order)
             self.session.refresh(order)
             logger.info("execution_cancel_done order_id=%s state=%s", order.id, order.state)
             return order
         except Exception as exc:
-            logger.exception("execution_cancel_exception order_id=%s", order.id)
+            logger.exception("주문 취소 중 예외 발생: order_id=%s", order.id)
             self._persist_error(order, exc, default_state=order.state or "ERROR_NEEDS_REVIEW")
             return order
 
@@ -287,6 +345,78 @@ class ExecutionEngine:
             canceled.append(self.cancel_order(row))
         logger.info("execution_cancel_open_orders_done canceled=%s", len(canceled))
         return canceled
+
+    def _resolve_open_order_conflict(self, market: str, new_side: str) -> None:
+        rows = self.session.scalars(
+            select(Order)
+            .where(Order.market == market, Order.state.in_(LOCAL_OPEN_STATES))
+            .order_by(Order.created_at.asc())
+        ).all()
+        conflicts = [row for row in rows if row.side != new_side]
+        if not conflicts:
+            return
+        logger.info(
+            "execution_open_order_conflict_resolve market=%s new_side=%s conflict_count=%s",
+            market,
+            new_side,
+            len(conflicts),
+        )
+        for row in conflicts:
+            self.cancel_order(row)
+
+    def _submit_with_policy(
+        self,
+        order: Order,
+        price: Decimal,
+        volume_str: str,
+        chance: dict,
+        policy,
+    ) -> Order:
+        tick = self._resolve_tick_size(chance, order.market, price)
+        price_step = Decimal(policy.reprice_step_bps) / Decimal("10000")
+        attempts = max(1, int(policy.max_reprice_attempts))
+        timeout = max(0, int(policy.fill_timeout_sec))
+
+        for attempt in range(1, attempts + 1):
+            if attempt > 1 or policy.order_type == "AGGRESSIVE_LIMIT":
+                multiplier = Decimal("1") + price_step if order.side == "bid" else Decimal("1") - price_step
+                if multiplier <= 0:
+                    multiplier = Decimal("0.0001")
+                price = self._adjust_price_by_tick(price * multiplier, tick, order.side)
+                order.requested_price = price
+                self.session.commit()
+            logger.info(
+                "execution_reprice_attempt order_id=%s attempt=%s/%s price=%s intent=%s",
+                order.id,
+                attempt,
+                attempts,
+                price,
+                order.intent,
+            )
+            result = self._submit_real_with_recovery(
+                order=order,
+                price_str=self._to_exchange_str(price),
+                volume_str=volume_str,
+                chance=chance,
+            )
+            if timeout <= 0:
+                return result
+            if result.state in {"FILLED", "PARTIAL", "CANCELED", "ERROR", "ERROR_NEEDS_REVIEW", "REJECTED"}:
+                return result
+            started = time.monotonic()
+            while (time.monotonic() - started) < timeout:
+                synced = self.sync_order(order)
+                if synced.state in {"FILLED", "PARTIAL", "CANCELED", "ERROR", "ERROR_NEEDS_REVIEW", "REJECTED"}:
+                    return synced
+                time.sleep(min(1.0, self.retry_backoff_seconds))
+            synced = self.sync_order(order)
+            if synced.state in {"FILLED", "PARTIAL", "CANCELED", "ERROR", "ERROR_NEEDS_REVIEW", "REJECTED"}:
+                return synced
+            self.cancel_order(order)
+
+        if policy.allow_market_fallback:
+            logger.warning("execution_market_fallback order_id=%s", order.id)
+        return order
 
     def _submit_real_with_recovery(self, order: Order, price_str: str, volume_str: str, chance: dict) -> Order:
         """실주문은 1회 전송 후, 실패 시 재전송 없이 identifier 조회 복구만 수행한다."""
@@ -333,7 +463,7 @@ class ExecutionEngine:
             order.last_error = info.message
             self.session.commit()
             logger.warning(
-                "execution_submit_real_failed order_id=%s error_class=%s message=%s",
+                "실주문 전송 실패: order_id=%s error_class=%s message=%s",
                 order.id,
                 order.error_class,
                 order.last_error,
@@ -347,7 +477,7 @@ class ExecutionEngine:
         order.state = "ERROR_NEEDS_REVIEW"
         self.session.commit()
         self.session.refresh(order)
-        logger.error("execution_submit_real_needs_manual_review order_id=%s", order.id)
+        logger.error("실주문 수동 검토 필요 상태 전환: order_id=%s", order.id)
         return order
 
     def _submit_test(self, order: Order, price_str: str, volume_str: str, chance: dict) -> Order:
@@ -382,7 +512,7 @@ class ExecutionEngine:
             logger.info("execution_submit_test_done order_id=%s state=%s", order.id, order.state)
             return order
         except Exception as exc:
-            logger.exception("execution_submit_test_exception order_id=%s", order.id)
+            logger.exception("테스트 주문 전송 중 예외 발생: order_id=%s", order.id)
             self._persist_error(order, exc, default_state="REJECTED")
             return order
 
@@ -406,6 +536,7 @@ class ExecutionEngine:
                     order.exchange_response_raw = json.dumps(payload, ensure_ascii=False)
                     self._upsert_fills(order=order, status=payload)
                     self.session.commit()
+                    self._upsert_trade_metric(order)
                     self.session.refresh(order)
                     logger.info(
                         "execution_recover_success order_id=%s attempt=%s upbit_uuid=%s state=%s",
@@ -422,7 +553,7 @@ class ExecutionEngine:
                 order.retry_count = attempt
                 self.session.commit()
                 logger.warning(
-                    "execution_recover_failed order_id=%s attempt=%s error_class=%s message=%s",
+                    "주문 복구 시도 실패: order_id=%s attempt=%s error_class=%s message=%s",
                     order.id,
                     attempt,
                     order.error_class,
@@ -449,7 +580,7 @@ class ExecutionEngine:
         self.session.commit()
         self.session.refresh(order)
         logger.warning(
-            "execution_error_persisted order_id=%s market=%s side=%s state=%s error_class=%s message=%s",
+            "주문 오류 상태 저장 완료: order_id=%s market=%s side=%s state=%s error_class=%s message=%s",
             order.id,
             order.market,
             order.side,
@@ -541,7 +672,7 @@ class ExecutionEngine:
         return text or "0"
 
     def _upsert_fills(self, order: Order, status: dict) -> None:
-        """주문 조회 응답의 체결 내역을 중복 없이 DB에 반영한다."""
+        """Upsert exchange fills into local DB."""
         inserted = 0
         skipped = 0
         for trade in status.get("trades", []):
@@ -573,6 +704,84 @@ class ExecutionEngine:
                 inserted,
                 skipped,
             )
+
+    def _upsert_trade_metric(self, order: Order) -> None:
+        self.session.flush()
+        fills = self.session.scalars(
+            select(Fill).where(Fill.order_id == order.id).order_by(Fill.executed_at.asc(), Fill.id.asc())
+        ).all()
+        if not fills:
+            return
+
+        total_volume = Decimal("0")
+        total_notional = Decimal("0")
+        total_fee = Decimal("0")
+        for fill in fills:
+            price = Decimal(fill.price)
+            volume = Decimal(fill.volume)
+            fee = Decimal(fill.fee)
+            total_notional += price * volume
+            total_volume += volume
+            total_fee += fee
+
+        if total_volume <= 0:
+            return
+
+        intended = Decimal(order.requested_price or 0)
+        vwap = total_notional / total_volume
+        slippage_abs = None
+        slippage_pct = None
+        if intended > 0:
+            raw = (vwap - intended) if order.side == "bid" else (intended - vwap)
+            slippage_abs = raw
+            slippage_pct = raw / intended
+
+        created_at = order.created_at or datetime.now(timezone.utc)
+        filled_at = max((fill.executed_at for fill in fills if fill.executed_at), default=created_at)
+        time_to_fill_ms = int(max(0.0, (filled_at - created_at).total_seconds() * 1000))
+
+        metric = self.session.scalar(select(TradeMetric).where(TradeMetric.order_id == order.id))
+        if metric is None:
+            metric = TradeMetric(order_id=order.id)
+            self.session.add(metric)
+
+        metric.intent = order.intent
+        metric.intended_price = intended if intended > 0 else None
+        metric.filled_vwap_price = vwap
+        metric.slippage_abs = slippage_abs
+        metric.slippage_pct = slippage_pct
+        metric.fee_abs = total_fee
+        metric.time_to_fill_ms = time_to_fill_ms
+        metric.partial_fill_count = len(fills)
+        self.session.commit()
+        logger.info(
+            "execution_trade_metric_upserted order_id=%s intent=%s vwap=%s slippage_pct=%s time_to_fill_ms=%s fill_count=%s",
+            order.id,
+            order.intent,
+            vwap,
+            slippage_pct,
+            time_to_fill_ms,
+            len(fills),
+        )
+
+    def latest_trade_metric(self, order_id: int) -> TradeMetric | None:
+        return self.session.scalar(select(TradeMetric).where(TradeMetric.order_id == order_id))
+
+    def count_slippage_breaches_since(
+        self,
+        since: datetime,
+        entry_budget_pct: Decimal,
+        exit_budget_pct: Decimal,
+    ) -> int:
+        rows = self.session.scalars(
+            select(TradeMetric).where(and_(TradeMetric.created_at >= since, TradeMetric.slippage_pct.is_not(None)))
+        ).all()
+        count = 0
+        for row in rows:
+            budget = exit_budget_pct if row.intent == OrderIntent.EXIT.value else entry_budget_pct
+            if row.slippage_pct is not None and Decimal(row.slippage_pct) > budget:
+                count += 1
+        return count
 
     @staticmethod
     def _parse_trade_time(trade: dict) -> datetime:

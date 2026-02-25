@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
@@ -9,11 +9,23 @@ from trader.trading.strategy import StrategySignal
 
 @dataclass(frozen=True)
 class RiskDecision:
-    """리스크 엔진이 반환하는 거래 허용/중단 결정."""
+    """Risk decision result for the current loop."""
 
     halted: bool
     target_exposure_pct: Decimal
     reason: str
+
+
+def should_skip_rebalance(
+    current_exposure_pct: Decimal,
+    target_exposure_pct: Decimal,
+    min_rebalance_threshold_pct: Decimal,
+) -> bool:
+    threshold = abs(Decimal(str(min_rebalance_threshold_pct)))
+    if threshold <= 0:
+        return False
+    delta = abs(Decimal(str(target_exposure_pct)) - Decimal(str(current_exposure_pct)))
+    return delta < threshold
 
 
 class RiskEngine:
@@ -23,7 +35,7 @@ class RiskEngine:
         config: RuntimeConfig,
         daily_pnl_pct: Decimal,
     ) -> RiskDecision:
-        """신호와 한도를 바탕으로 최종 목표 노출 비중을 확정한다."""
+        """Return final allowed target exposure after risk guards."""
         if not config.is_enabled:
             return RiskDecision(halted=True, target_exposure_pct=Decimal("0"), reason="bot_disabled")
         if daily_pnl_pct <= -abs(config.max_daily_loss_pct):

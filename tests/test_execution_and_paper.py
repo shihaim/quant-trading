@@ -193,6 +193,35 @@ def test_cancel_order_transitions_to_canceled():
     assert canceled.state == "CANCELED"
 
 
+def test_conflicting_open_order_is_canceled_before_new_side_order():
+    session = _session()
+    client = FakeUpbitClient()
+    client.get_order_state = "wait"
+    engine = ExecutionEngine(session=session, upbit_client=client, max_submit_retries=2, trade_mode="REAL")
+
+    first = engine.place_target_order(
+        market="KRW-BTC",
+        current_qty=Decimal("0"),
+        target_qty=Decimal("1"),
+        ref_price=Decimal("10000"),
+        idempotency_key="conflict-1",
+    )
+    assert first is not None
+    assert first.state in {"OPEN", "WAIT"}
+
+    second = engine.place_target_order(
+        market="KRW-BTC",
+        current_qty=Decimal("1"),
+        target_qty=Decimal("0"),
+        ref_price=Decimal("10000"),
+        idempotency_key="conflict-2",
+    )
+    assert second is not None
+    refreshed_first = session.get(Order, first.id)
+    assert refreshed_first is not None
+    assert refreshed_first.state == "CANCELED"
+
+
 def test_paper_execution_updates_wallet_and_position_once():
     session = _session()
     portfolio = PortfolioService(session)

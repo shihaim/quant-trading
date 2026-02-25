@@ -22,6 +22,7 @@ class PaperExecutionEngine:
         target_qty: Decimal,
         ref_price: Decimal,
         idempotency_key: str,
+        **_: object,
     ) -> Order | None:
         """목표 수량 차이만큼 가상 주문/체결을 즉시 생성한다."""
         delta = target_qty - current_qty

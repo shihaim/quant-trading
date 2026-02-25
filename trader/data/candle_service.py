@@ -53,7 +53,7 @@ class CandleService:
         """가장 최근 완성 봉 1개를 갱신한다(업서트)."""
         candles = self.upbit_client.get_candles(market=market, timeframe=timeframe, count=2)
         if not candles:
-            logger.warning("candle_latest_empty market=%s timeframe=%s", market, timeframe)
+            logger.warning("최신 완성 캔들이 비어 있음: market=%s timeframe=%s", market, timeframe)
             return
         complete = candles[1] if len(candles) > 1 else candles[0]
         self._upsert_upbit_candles(market=market, timeframe=timeframe, candles=[complete])
@@ -120,4 +120,4 @@ class CandleService:
         """특정 마켓/타임프레임 캔들을 모두 삭제한다."""
         self.session.execute(delete(Candle).where(Candle.market == market, Candle.timeframe == timeframe))
         self.session.commit()
-        logger.warning("candle_cleared market=%s timeframe=%s", market, timeframe)
+        logger.warning("캔들 데이터 초기화 수행: market=%s timeframe=%s", market, timeframe)
