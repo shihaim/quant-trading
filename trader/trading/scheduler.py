@@ -157,15 +157,21 @@ class TradingScheduler:
             realized_pnl=realized_total,
             unrealized_pnl=unrealized_total,
         )
-        daily_pnl_pct = Decimal(daily_snapshot.daily_pnl_pct)
+        daily_pnl_abs, daily_pnl_pct = self.pnl.resolve_daily_pnl_pct(
+            snapshot=daily_snapshot,
+            basis=cfg.daily_loss_basis,
+            current_realized_pnl=realized_total,
+        )
         logger.info(
-            "scheduler_daily_pnl date_utc=%s start_equity=%s last_equity=%s daily_pnl_abs=%s daily_pnl_pct=%s "
-            "realized_pnl=%s unrealized_pnl=%s",
+            "scheduler_daily_pnl basis=%s date_utc=%s start_equity=%s start_realized_pnl=%s last_equity=%s "
+            "daily_pnl_abs=%s daily_pnl_pct=%s realized_pnl=%s unrealized_pnl=%s",
+            cfg.daily_loss_basis,
             daily_snapshot.date_utc,
             daily_snapshot.start_equity,
+            daily_snapshot.start_realized_pnl,
             daily_snapshot.last_equity,
-            daily_snapshot.daily_pnl_abs,
-            daily_snapshot.daily_pnl_pct,
+            daily_pnl_abs,
+            daily_pnl_pct,
             daily_snapshot.realized_pnl,
             daily_snapshot.unrealized_pnl,
         )

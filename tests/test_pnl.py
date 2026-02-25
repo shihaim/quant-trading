@@ -55,7 +55,9 @@ def test_daily_snapshot_keeps_start_equity_within_day():
     )
 
     assert first.start_equity == Decimal("10000")
+    assert first.start_realized_pnl == Decimal("0")
     assert second.start_equity == Decimal("10000")
+    assert second.start_realized_pnl == Decimal("0")
     assert second.daily_pnl_abs == Decimal("-100")
     assert second.daily_pnl_pct == Decimal("-0.01")
 
@@ -80,5 +82,26 @@ def test_daily_snapshot_creates_new_baseline_on_new_day():
     rows = session.query(DailyEquity).order_by(DailyEquity.date_utc.asc()).all()
     assert len(rows) == 2
     assert next_day.start_equity == Decimal("9800")
+    assert next_day.start_realized_pnl == Decimal("-200")
     assert next_day.daily_pnl_abs == Decimal("0")
     assert next_day.daily_pnl_pct == Decimal("0")
+
+
+def test_resolve_daily_pnl_pct_realized_only_uses_realized_delta():
+    session = _session()
+    pnl = PnLService(session)
+    snap = pnl.update_daily_snapshot(
+        current_equity=Decimal("10000"),
+        realized_pnl=Decimal("100"),
+        unrealized_pnl=Decimal("0"),
+        as_of_date_utc=date(2026, 2, 24),
+    )
+
+    daily_abs, daily_pct = pnl.resolve_daily_pnl_pct(
+        snapshot=snap,
+        basis="REALIZED_ONLY",
+        current_realized_pnl=Decimal("60"),
+    )
+
+    assert daily_abs == Decimal("-40")
+    assert daily_pct == Decimal("-0.004")

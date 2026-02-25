@@ -26,6 +26,7 @@ class _Snapshot:
 class _DailySnapshot:
     date_utc: object
     start_equity: Decimal
+    start_realized_pnl: Decimal
     last_equity: Decimal
     realized_pnl: Decimal
     unrealized_pnl: Decimal
@@ -98,12 +99,16 @@ class _PnlStub:
         return _DailySnapshot(
             date_utc=datetime(2026, 2, 24, tzinfo=timezone.utc).date(),
             start_equity=Decimal("10000"),
+            start_realized_pnl=Decimal("0"),
             last_equity=current_equity,
             realized_pnl=realized_pnl,
             unrealized_pnl=unrealized_pnl,
             daily_pnl_abs=Decimal("-300"),
             daily_pnl_pct=Decimal("-0.03"),
         )
+
+    def resolve_daily_pnl_pct(self, snapshot: _DailySnapshot, basis: str, current_realized_pnl: Decimal):
+        return snapshot.daily_pnl_abs, snapshot.daily_pnl_pct
 
 
 class _ExecutionStub:
@@ -119,7 +124,7 @@ class _NotifierStub:
         self.messages.append(text)
 
 
-def _cfg() -> RuntimeConfig:
+def _cfg(daily_loss_basis: str = "TOTAL") -> RuntimeConfig:
     return RuntimeConfig(
         is_enabled=True,
         timeframe="1m",
@@ -128,6 +133,7 @@ def _cfg() -> RuntimeConfig:
         max_total_exposure_pct=Decimal("0.30"),
         max_per_market_exposure_pct=Decimal("0.10"),
         target_exposure_pct=Decimal("0.10"),
+        daily_loss_basis=daily_loss_basis,
     )
 
 
@@ -149,3 +155,22 @@ def test_scheduler_uses_computed_daily_pnl_pct_for_risk():
 
     assert scheduler.risk.last_daily_pnl_pct == Decimal("-0.03")
     assert any("HALT KRW-BTC" in msg for msg in scheduler.notifier.messages)
+
+
+def test_scheduler_uses_basis_from_runtime_config():
+    scheduler = TradingScheduler.__new__(TradingScheduler)
+    scheduler.trade_mode = "PAPER"
+    scheduler.is_paper = True
+    scheduler.allowed_markets = set()
+    scheduler.candle_service = _CandleServiceStub()
+    scheduler.strategy = _StrategyStub()
+    scheduler.risk = _RiskStub()
+    scheduler.portfolio = _PortfolioStub()
+    scheduler.execution = _ExecutionStub()
+    scheduler.reconcile = None
+    scheduler.pnl = _PnlStub()
+    scheduler.notifier = _NotifierStub()
+
+    scheduler._run_once(_cfg(daily_loss_basis="REALIZED_ONLY"))
+
+    assert scheduler.risk.last_daily_pnl_pct == Decimal("-0.03")

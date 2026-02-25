@@ -32,6 +32,7 @@ COLUMN_DOCS_EN = {
         "timeframe": "Legacy fallback timeframe when no enabled timeframe row exists.",
         "markets_json": "Target markets as JSON array string.",
         "target_exposure_pct": "Base BUY target exposure ratio (0-1).",
+        "daily_loss_basis": "Daily loss basis (TOTAL or REALIZED_ONLY).",
         "max_daily_loss_pct": "Daily loss halt threshold ratio.",
         "max_total_exposure_pct": "Maximum total exposure ratio.",
         "max_per_market_exposure_pct": "Maximum exposure ratio per market.",
@@ -93,6 +94,7 @@ COLUMN_DOCS_EN = {
     "daily_equity": {
         "date_utc": "UTC date key.",
         "start_equity": "Start-of-day equity baseline.",
+        "start_realized_pnl": "Start-of-day realized PnL baseline.",
         "last_equity": "Latest equity snapshot for the day.",
         "realized_pnl": "Accumulated realized PnL snapshot.",
         "unrealized_pnl": "Current unrealized PnL snapshot.",
@@ -198,6 +200,7 @@ KST_VIEW_SQL = {
             timeframe,
             markets_json,
             target_exposure_pct,
+            daily_loss_basis,
             max_daily_loss_pct,
             max_total_exposure_pct,
             max_per_market_exposure_pct,
@@ -285,6 +288,7 @@ KST_VIEW_SQL = {
             date_utc,
             datetime(date_utc || ' 00:00:00', '+9 hours') AS date_kst,
             start_equity,
+            start_realized_pnl,
             last_equity,
             realized_pnl,
             unrealized_pnl,
@@ -333,11 +337,20 @@ def run_lightweight_migrations() -> None:
             bot_cols = {col["name"] for col in inspector.get_columns("bot_config")}
             if "target_exposure_pct" not in bot_cols:
                 conn.execute(text("ALTER TABLE bot_config ADD COLUMN target_exposure_pct NUMERIC(10,6) DEFAULT 0.10"))
+            if "daily_loss_basis" not in bot_cols:
+                conn.execute(text("ALTER TABLE bot_config ADD COLUMN daily_loss_basis VARCHAR(32) DEFAULT 'TOTAL'"))
             conn.execute(
                 text(
                     "UPDATE bot_config "
                     "SET target_exposure_pct = 0.10 "
                     "WHERE target_exposure_pct IS NULL OR target_exposure_pct <= 0"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE bot_config "
+                    "SET daily_loss_basis = 'TOTAL' "
+                    "WHERE daily_loss_basis IS NULL OR TRIM(daily_loss_basis) = ''"
                 )
             )
         if "timeframe_config" not in table_names:
@@ -362,6 +375,7 @@ def run_lightweight_migrations() -> None:
                     CREATE TABLE daily_equity (
                         date_utc DATE PRIMARY KEY,
                         start_equity NUMERIC(28,8) NOT NULL DEFAULT 0,
+                        start_realized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
                         last_equity NUMERIC(28,8) NOT NULL DEFAULT 0,
                         realized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
                         unrealized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
@@ -372,6 +386,17 @@ def run_lightweight_migrations() -> None:
                     """
                 )
             )
+        else:
+            daily_cols = {col["name"] for col in inspector.get_columns("daily_equity")}
+            if "start_realized_pnl" not in daily_cols:
+                conn.execute(text("ALTER TABLE daily_equity ADD COLUMN start_realized_pnl NUMERIC(28,8) DEFAULT 0"))
+                conn.execute(
+                    text(
+                        "UPDATE daily_equity "
+                        "SET start_realized_pnl = COALESCE(realized_pnl, 0) "
+                        "WHERE start_realized_pnl IS NULL"
+                    )
+                )
 
         existing = conn.execute(text("SELECT timeframe FROM timeframe_config")).fetchall()
         existing_timeframes = {row[0] for row in existing}

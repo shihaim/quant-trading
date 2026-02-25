@@ -22,6 +22,7 @@ class RuntimeConfig:
     max_total_exposure_pct: Decimal
     max_per_market_exposure_pct: Decimal
     target_exposure_pct: Decimal = Decimal("0.10")
+    daily_loss_basis: str = "TOTAL"
 
 
 class ConfigRepo:
@@ -49,11 +50,13 @@ class ConfigRepo:
             timeframe = "15m"
         markets = json.loads(row.markets_json or "[]")
         target_exposure_pct = self._sanitize_target_exposure(row.target_exposure_pct)
+        daily_loss_basis = self._sanitize_daily_loss_basis(getattr(row, "daily_loss_basis", None))
         return RuntimeConfig(
             is_enabled=bool(row.is_enabled),
             timeframe=timeframe,
             markets=markets,
             max_daily_loss_pct=Decimal(row.max_daily_loss_pct),
+            daily_loss_basis=daily_loss_basis,
             max_total_exposure_pct=Decimal(row.max_total_exposure_pct),
             max_per_market_exposure_pct=Decimal(row.max_per_market_exposure_pct),
             target_exposure_pct=target_exposure_pct,
@@ -70,3 +73,10 @@ class ConfigRepo:
         if value > Decimal("1"):
             return Decimal("1")
         return value
+
+    @staticmethod
+    def _sanitize_daily_loss_basis(raw: str | None) -> str:
+        value = str(raw or "").strip().upper()
+        if value in {"TOTAL", "REALIZED_ONLY"}:
+            return value
+        return "TOTAL"

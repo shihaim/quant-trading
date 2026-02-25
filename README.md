@@ -59,6 +59,7 @@ The `bot_config` row with `id=1` is reloaded during runtime:
 - `timeframe`: `1m`, `3m`, `5m`, `15m`, `30m`, `60m`, `240m`, `day`
 - `markets_json`: e.g. `["KRW-BTC","KRW-ETH"]`
 - `target_exposure_pct`: BUY 신호 기본 목표 비중 (예: `0.15`)
+- `daily_loss_basis`: `TOTAL` (default) or `REALIZED_ONLY`
 - `max_daily_loss_pct`
 - `max_total_exposure_pct`
 - `max_per_market_exposure_pct`
@@ -110,3 +111,7 @@ Notes:
 - `order-cancel` is intended for `TRADE_MODE=REAL` with ultra-small controlled setup.
 - enable `ENFORCE_MARKET_ALLOWLIST=true` to hard-block non-allowlist markets.
 - when switching runtime timeframe from `15m` to `5m`, consider `MIN_STRATEGY_CANDLES=360` to keep a similar lookback horizon.
+
+## P2 Policy
+
+- PnL/risk-halt basis policy is documented in `docs/p2_design.md`.

@@ -25,6 +25,7 @@ class BotConfig(Base):
     timeframe: Mapped[str] = mapped_column(String(16), default="15m")
     markets_json: Mapped[str] = mapped_column(Text, default='["KRW-BTC"]')
     target_exposure_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.10"))
+    daily_loss_basis: Mapped[str] = mapped_column(String(32), default="TOTAL")
     max_daily_loss_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.02"))
     max_total_exposure_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.30"))
     max_per_market_exposure_pct: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0.10"))
@@ -124,6 +125,7 @@ class DailyEquity(Base):
 
     date_utc: Mapped[date] = mapped_column(Date, primary_key=True)
     start_equity: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
+    start_realized_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
     last_equity: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
     realized_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))
     unrealized_pnl: Mapped[Decimal] = mapped_column(Numeric(28, 8), default=Decimal("0"))

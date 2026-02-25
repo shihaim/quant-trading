@@ -15,6 +15,7 @@ class DailyPnlSnapshot:
 
     date_utc: date
     start_equity: Decimal
+    start_realized_pnl: Decimal
     last_equity: Decimal
     realized_pnl: Decimal
     unrealized_pnl: Decimal
@@ -41,9 +42,12 @@ class PnLService:
             row = DailyEquity(
                 date_utc=d_utc,
                 start_equity=current_equity,
+                start_realized_pnl=realized_pnl,
                 last_equity=current_equity,
             )
             self.session.add(row)
+        elif row.start_realized_pnl is None:
+            row.start_realized_pnl = realized_pnl
         row.last_equity = current_equity
         row.realized_pnl = realized_pnl
         row.unrealized_pnl = unrealized_pnl
@@ -58,9 +62,24 @@ class PnLService:
         return DailyPnlSnapshot(
             date_utc=row.date_utc,
             start_equity=Decimal(row.start_equity),
+            start_realized_pnl=Decimal(row.start_realized_pnl),
             last_equity=Decimal(row.last_equity),
             realized_pnl=Decimal(row.realized_pnl),
             unrealized_pnl=Decimal(row.unrealized_pnl),
             daily_pnl_abs=Decimal(row.daily_pnl_abs),
             daily_pnl_pct=Decimal(row.daily_pnl_pct),
         )
+
+    @staticmethod
+    def resolve_daily_pnl_pct(
+        snapshot: DailyPnlSnapshot,
+        basis: str,
+        current_realized_pnl: Decimal,
+    ) -> tuple[Decimal, Decimal]:
+        normalized = str(basis or "").strip().upper()
+        if normalized == "REALIZED_ONLY":
+            daily_abs = current_realized_pnl - Decimal(snapshot.start_realized_pnl)
+            if Decimal(snapshot.start_equity) > 0:
+                return daily_abs, daily_abs / Decimal(snapshot.start_equity)
+            return daily_abs, Decimal("0")
+        return Decimal(snapshot.daily_pnl_abs), Decimal(snapshot.daily_pnl_pct)
