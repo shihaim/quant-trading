@@ -135,8 +135,128 @@ COLUMN_DOCS_EN = {
     },
 }
 
-TABLE_DOCS_KO = {k: v for k, v in TABLE_DOCS_EN.items()}
-COLUMN_DOCS_KO = {k: v.copy() for k, v in COLUMN_DOCS_EN.items()}
+TABLE_DOCS_KO = {
+    "bot_config": "런타임 제어 및 리스크 설정(단일 활성 행).",
+    "timeframe_config": "실행 대상 타임프레임과 활성화 상태.",
+    "candles": "마켓/타임프레임별 OHLCV 캔들 이력.",
+    "orders": "주문 의도와 거래소 상태 추적.",
+    "fills": "주문과 연결된 체결 내역(trade_id 기준 멱등).",
+    "trade_metrics": "주문별 집행 품질 지표(VWAP, 슬리피지, 체결 시간).",
+    "positions": "마켓별 현재 포지션 상태.",
+    "daily_equity": "일별 자산 기준선 및 손익 스냅샷(UTC 날짜 키).",
+    "paper_wallet": "페이퍼 트레이딩 현금 지갑.",
+}
+
+COLUMN_DOCS_KO = {
+    "bot_config": {
+        "id": "기본 키. 일반적으로 1.",
+        "is_enabled": "봇 전역 on/off 스위치.",
+        "timeframe": "활성 타임프레임 행이 없을 때 사용하는 레거시 기본 타임프레임.",
+        "markets_json": "대상 마켓 목록(JSON 배열 문자열).",
+        "target_exposure_pct": "기본 BUY 목표 노출 비율(0-1).",
+        "daily_loss_basis": "일일 손실 기준(TOTAL 또는 REALIZED_ONLY).",
+        "min_rebalance_threshold_pct": "노출 비율 차이가 이 값보다 작으면 주문을 생략.",
+        "min_order_krw_buffer": "최소 주문 금액에 추가로 요구하는 KRW 버퍼.",
+        "fill_timeout_sec_entry": "ENTRY 의도 주문의 체결 대기 제한 시간(초).",
+        "fill_timeout_sec_exit": "EXIT 의도 주문의 체결 대기 제한 시간(초).",
+        "fill_timeout_sec_rebalance": "REBALANCE 의도 주문의 체결 대기 제한 시간(초).",
+        "max_reprice_attempts_entry": "ENTRY 의도 주문의 최대 재호가 횟수.",
+        "max_reprice_attempts_exit": "EXIT 의도 주문의 최대 재호가 횟수.",
+        "max_reprice_attempts_rebalance": "REBALANCE 의도 주문의 최대 재호가 횟수.",
+        "reprice_step_bps": "재호가 스텝 크기(bps).",
+        "slippage_budget_entry_pct": "ENTRY 슬리피지 예산 비율.",
+        "slippage_budget_exit_pct": "EXIT 슬리피지 예산 비율.",
+        "slippage_budget_breach_halt_count": "예산 위반 횟수가 이 값에 도달하면 자동 중지.",
+        "status_notify_interval_seconds": "주기 상태 알림 간격(초).",
+        "max_daily_loss_pct": "일일 손실 중지 임계 비율.",
+        "max_total_exposure_pct": "총 노출 최대 비율.",
+        "max_per_market_exposure_pct": "마켓별 노출 최대 비율.",
+        "updated_at": "마지막 수정 시각.",
+    },
+    "timeframe_config": {
+        "id": "기본 키.",
+        "timeframe": "타임프레임 키(1m/3m/5m/15m/30m/60m/240m/day).",
+        "is_enabled": "해당 타임프레임 활성화 여부(1/0).",
+        "updated_at": "마지막 수정 시각.",
+    },
+    "candles": {
+        "id": "기본 키.",
+        "market": "마켓 코드(예: KRW-BTC).",
+        "timeframe": "타임프레임 키.",
+        "candle_time_utc": "UTC 기준 캔들 시가 시각.",
+        "open": "시가.",
+        "high": "고가.",
+        "low": "저가.",
+        "close": "종가.",
+        "volume": "거래량.",
+    },
+    "orders": {
+        "id": "기본 키.",
+        "market": "마켓 코드.",
+        "side": "매수/매도(bid/ask).",
+        "ord_type": "주문 유형(일반적으로 limit).",
+        "requested_price": "요청한 지정가 가격.",
+        "requested_volume": "요청한 주문 수량.",
+        "client_order_id": "로컬 멱등 키.",
+        "intent": "주문 의도(ENTRY/EXIT/REBALANCE).",
+        "upbit_identifier": "복구 조회에 사용하는 거래소 식별자.",
+        "upbit_uuid": "거래소 주문 UUID.",
+        "state": "로컬 주문 상태.",
+        "retry_count": "제출/복구 재시도 횟수.",
+        "error_class": "정규화된 오류 클래스.",
+        "last_error": "최신 오류 메시지.",
+        "exchange_response_raw": "거래소 원본 응답 스냅샷.",
+        "created_at": "생성 시각.",
+        "updated_at": "마지막 수정 시각.",
+    },
+    "fills": {
+        "id": "기본 키.",
+        "order_id": "orders.id 외래 키.",
+        "trade_id": "거래소 체결 고유 ID.",
+        "price": "체결 가격.",
+        "volume": "체결 수량.",
+        "fee": "수수료 금액.",
+        "is_applied": "포트폴리오 반영 여부.",
+        "executed_at": "체결 시각.",
+    },
+    "trade_metrics": {
+        "id": "기본 키.",
+        "order_id": "orders.id 외래 키(주문당 1행).",
+        "intent": "주문 의도(ENTRY/EXIT/REBALANCE).",
+        "intended_price": "주문 제출 시 의도 가격.",
+        "filled_vwap_price": "체결 VWAP 가격.",
+        "slippage_abs": "절대 슬리피지(불리한 방향 양수).",
+        "slippage_pct": "슬리피지 비율.",
+        "fee_abs": "총 수수료 금액.",
+        "time_to_fill_ms": "주문 생성부터 최종 체결까지 소요 시간(ms).",
+        "partial_fill_count": "해당 주문의 체결 건수.",
+        "created_at": "지표 생성 시각.",
+    },
+    "positions": {
+        "market": "기본 키 마켓 코드.",
+        "qty": "현재 보유 수량.",
+        "avg_price": "평균 매입 단가.",
+        "realized_pnl": "누적 실현 손익.",
+        "unrealized_pnl": "현재 미실현 손익 스냅샷.",
+        "updated_at": "마지막 수정 시각.",
+    },
+    "daily_equity": {
+        "date_utc": "UTC 날짜 키.",
+        "start_equity": "일 시작 시점 자산 기준선.",
+        "start_realized_pnl": "일 시작 시점 실현 손익 기준선.",
+        "last_equity": "당일 최신 자산 스냅샷.",
+        "realized_pnl": "누적 실현 손익 스냅샷.",
+        "unrealized_pnl": "현재 미실현 손익 스냅샷.",
+        "daily_pnl_abs": "기준선 대비 당일 절대 손익.",
+        "daily_pnl_pct": "기준선 대비 당일 손익 비율.",
+        "updated_at": "마지막 수정 시각.",
+    },
+    "paper_wallet": {
+        "id": "기본 키(단일 행).",
+        "cash_krw": "페이퍼 지갑 KRW 현금 잔액.",
+        "updated_at": "마지막 수정 시각.",
+    },
+}
 
 KST_VIEW_SQL = {
     "bot_config_kst": """
@@ -164,7 +284,6 @@ KST_VIEW_SQL = {
             max_daily_loss_pct,
             max_total_exposure_pct,
             max_per_market_exposure_pct,
-            updated_at AS updated_at_utc,
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM bot_config
     """,
@@ -174,7 +293,6 @@ KST_VIEW_SQL = {
             id,
             timeframe,
             is_enabled,
-            updated_at AS updated_at_utc,
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM timeframe_config
     """,
@@ -184,7 +302,6 @@ KST_VIEW_SQL = {
             id,
             market,
             timeframe,
-            candle_time_utc,
             datetime(candle_time_utc, '+9 hours') AS candle_time_kst,
             open,
             high,
@@ -211,9 +328,7 @@ KST_VIEW_SQL = {
             error_class,
             last_error,
             exchange_response_raw,
-            created_at AS created_at_utc,
             datetime(created_at, '+9 hours') AS created_at_kst,
-            updated_at AS updated_at_utc,
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM orders
     """,
@@ -227,7 +342,6 @@ KST_VIEW_SQL = {
             volume,
             fee,
             is_applied,
-            executed_at AS executed_at_utc,
             datetime(executed_at, '+9 hours') AS executed_at_kst
         FROM fills
     """,
@@ -244,7 +358,6 @@ KST_VIEW_SQL = {
             fee_abs,
             time_to_fill_ms,
             partial_fill_count,
-            created_at AS created_at_utc,
             datetime(created_at, '+9 hours') AS created_at_kst
         FROM trade_metrics
     """,
@@ -256,14 +369,12 @@ KST_VIEW_SQL = {
             avg_price,
             realized_pnl,
             unrealized_pnl,
-            updated_at AS updated_at_utc,
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM positions
     """,
     "daily_equity_kst": """
         CREATE VIEW daily_equity_kst AS
         SELECT
-            date_utc,
             datetime(date_utc || ' 00:00:00', '+9 hours') AS date_kst,
             start_equity,
             start_realized_pnl,
@@ -272,7 +383,6 @@ KST_VIEW_SQL = {
             unrealized_pnl,
             daily_pnl_abs,
             daily_pnl_pct,
-            updated_at AS updated_at_utc,
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM daily_equity
     """,
@@ -281,9 +391,25 @@ KST_VIEW_SQL = {
         SELECT
             id,
             cash_krw,
-            updated_at AS updated_at_utc,
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM paper_wallet
+    """,
+    "schema_table_docs_kst": """
+        CREATE VIEW schema_table_docs_kst AS
+        SELECT
+            table_name,
+            description_en,
+            description_ko
+        FROM schema_table_docs
+    """,
+    "schema_column_docs_kst": """
+        CREATE VIEW schema_column_docs_kst AS
+        SELECT
+            table_name,
+            column_name,
+            description_en,
+            description_ko
+        FROM schema_column_docs
     """,
 }
 
@@ -418,7 +544,8 @@ def run_lightweight_migrations() -> None:
                     """
                 )
             )
-            conn.execute(text("CREATE INDEX ix_trade_metrics_order_id ON trade_metrics(order_id)"))
+
+        conn.execute(text("DROP INDEX IF EXISTS ix_trade_metrics_order_id"))
 
         existing = conn.execute(text("SELECT timeframe FROM timeframe_config")).fetchall()
         existing_timeframes = {row[0] for row in existing}
