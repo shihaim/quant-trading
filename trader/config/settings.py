@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     rehearsal_order_notional_krw: float = Field(default=6000.0, alias="REHEARSAL_ORDER_NOTIONAL_KRW")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+    ops_api_allow_origin: str = Field(default="*", alias="OPS_API_ALLOW_ORIGIN")
 
     model_config = SettingsConfigDict(
         env_file=Path(".env"),

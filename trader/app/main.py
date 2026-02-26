@@ -4,7 +4,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from trader.config.settings import settings
-from trader.data.db import Base, SessionLocal, engine, run_lightweight_migrations
+from trader.data.db import SessionLocal, initialize_database
 from trader.trading.scheduler import TradingScheduler
 
 logger = logging.getLogger(__name__)
@@ -76,8 +76,7 @@ def main() -> None:
         settings.poll_interval_seconds,
         settings.config_reload_seconds,
     )
-    Base.metadata.create_all(bind=engine)
-    run_lightweight_migrations()
+    initialize_database()
     session = SessionLocal()
     try:
         scheduler = TradingScheduler(session=session)

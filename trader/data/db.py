@@ -12,6 +12,16 @@ class Base(DeclarativeBase):
 engine = create_engine(settings.database_url, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
+
+def get_session_factory():
+    """Return the configured SQLAlchemy session factory."""
+    return SessionLocal
+
+
+def create_session():
+    """Create a new DB session."""
+    return SessionLocal()
+
 TABLE_DOCS_EN = {
     "bot_config": "Runtime control and risk configuration (single active row).",
     "timeframe_config": "Executable timeframe rows with enable flags.",
@@ -674,3 +684,9 @@ def _sync_kst_views(conn) -> None:
     for view_name, sql in KST_VIEW_SQL.items():
         conn.execute(text(f"DROP VIEW IF EXISTS {view_name}"))
         conn.execute(text(sql))
+
+
+def initialize_database() -> None:
+    """Create base schema and apply lightweight migrations."""
+    Base.metadata.create_all(bind=engine)
+    run_lightweight_migrations()

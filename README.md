@@ -18,6 +18,43 @@ pip install -e .[dev]
 python -m trader.app.main
 ```
 
+## Ops API (Dashboard MVP)
+
+Run a lightweight local API server for operations dashboard integration:
+
+```bash
+python -m trader.app.ops_api --host 127.0.0.1 --port 8080
+```
+
+Available endpoints:
+
+- `GET /api/ops/summary`
+- `GET /api/orders?state=ERROR_NEEDS_REVIEW&limit=50`
+- `GET /api/pnl/daily?days=30&tz=UTC`
+- `GET /api/metrics/trade?limit=200`
+- `POST /api/bot/enable`
+- `POST /api/bot/disable`
+
+For split frontend/backend deployment, allow CORS with:
+
+- `OPS_API_ALLOW_ORIGIN` (default: `*`)
+
+## Ops Dashboard Web (Separated Frontend)
+
+Next.js frontend lives in `apps/web` and runs as a separate process.
+
+```bash
+python -m trader.app.ops_api --host 127.0.0.1 --port 8080
+cd apps/web
+npm install
+npm run dev
+```
+
+Open:
+
+- `http://127.0.0.1:3000`
+- set `NEXT_PUBLIC_API_BASE_URL` for backend endpoint (default: `http://127.0.0.1:8080`)
+
 ## Modes
 
 - `TRADE_MODE=PAPER` (default): no live order, simulated fill in DB
@@ -49,6 +86,7 @@ In `REAL/TEST/SHADOW` mode, both keys are required:
 - `REHEARSAL_ORDER_NOTIONAL_KRW` (default: `6000`)
 - `TELEGRAM_BOT_TOKEN` (optional)
 - `TELEGRAM_CHAT_ID` (optional)
+- `OPS_API_ALLOW_ORIGIN` (default: `*`, for separated frontend origin)
 - `LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, default: `INFO`)
 - `LOG_DIR` (default: `logs`)
 - `APP_INFO_LOG_FILE` (default: `application-info.log`, stores `INFO`/`WARNING`)
