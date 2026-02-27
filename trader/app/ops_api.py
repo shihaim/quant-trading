@@ -4,8 +4,11 @@ import argparse
 import logging
 
 from trader.api.ops_http import serve_ops_http
+from trader.app.logging_config import configure_file_logging
 from trader.config.settings import settings
 from trader.data.db import get_session_factory, initialize_database
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -16,9 +19,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
-    initialize_database()
+    configure_file_logging(
+        info_env_key="OPS_API_INFO_LOG_FILE",
+        error_env_key="OPS_API_ERROR_LOG_FILE",
+        default_info_file="ops-api-info.log",
+        default_error_file="ops-api-error.log",
+    )
     args = parse_args()
+    logger.info("ops_api_start host=%s port=%s mode=%s", args.host, args.port, settings.trade_mode)
+    initialize_database()
     serve_ops_http(
         host=args.host,
         port=args.port,
@@ -30,4 +39,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

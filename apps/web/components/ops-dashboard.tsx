@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { opsApi } from "../lib/api";
+import { sendClientLog, toErrorMessage } from "../lib/client-log";
 import { asInt, asKrw, asPct, asTime, short } from "../lib/format";
 import { DASHBOARD_TEXT, type DashboardText, type LocaleCode } from "../lib/i18n";
 import type { OpsSummary } from "../lib/types";
@@ -97,6 +98,41 @@ export function OpsDashboard() {
     document.documentElement.lang = locale === "ko" ? "ko" : "en";
   }, [locale]);
 
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      void sendClientLog({
+        level: "ERROR",
+        source: "window.onerror",
+        message: event.message || "window_error",
+        context: {
+          filename: event.filename || "",
+          line: event.lineno,
+          column: event.colno
+        }
+      });
+    };
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      void sendClientLog({
+        level: "ERROR",
+        source: "window.unhandledrejection",
+        message: toErrorMessage(event.reason),
+        context: {}
+      });
+    };
+    void sendClientLog({
+      level: "INFO",
+      source: "ops-dashboard",
+      message: "page_loaded",
+      context: {}
+    });
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, []);
+
   const text = DASHBOARD_TEXT[locale];
   const intlLocale = locale === "ko" ? "ko-KR" : "en-US";
 
@@ -106,7 +142,14 @@ export function OpsDashboard() {
       setSummary(data);
       setError("");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unknown error");
+      const errorMessage = toErrorMessage(requestError);
+      setError(errorMessage);
+      void sendClientLog({
+        level: "ERROR",
+        source: "ops-dashboard.loadSummary",
+        message: errorMessage,
+        context: {}
+      });
     } finally {
       setIsLoading(false);
     }
@@ -138,9 +181,22 @@ export function OpsDashboard() {
         } else {
           await opsApi.disableBot();
         }
+        void sendClientLog({
+          level: "INFO",
+          source: "ops-dashboard.onToggle",
+          message: enabled ? "bot_enable_requested" : "bot_disable_requested",
+          context: { enabled }
+        });
         await loadSummary();
       } catch (requestError) {
-        setError(requestError instanceof Error ? requestError.message : "Unknown error");
+        const errorMessage = toErrorMessage(requestError);
+        setError(errorMessage);
+        void sendClientLog({
+          level: "ERROR",
+          source: "ops-dashboard.onToggle",
+          message: errorMessage,
+          context: { enabled }
+        });
       } finally {
         setIsMutating(false);
       }
@@ -393,4 +449,3 @@ function KpiCell({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

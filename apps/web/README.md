@@ -36,6 +36,21 @@ Set frontend API endpoint:
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080
 ```
 
+Frontend file logging (stored separately from backend logs):
+
+```bash
+WEB_LOG_DIR=./logs
+WEB_INFO_LOG_FILE=web-info.log
+WEB_ERROR_LOG_FILE=web-error.log
+WEB_LOG_LEVEL=INFO
+WEB_LOG_ROTATE_MAX_BYTES=10485760
+WEB_LOG_ROTATE_BACKUP_COUNT=10
+```
+
+- Client-side errors are collected via `POST /api/logs` and written to files.
+- With the default run command (`cd apps/web && npm run dev`), logs are written under `apps/web/logs`.
+- Keep backend logs in the repo-root `logs/` directory to maintain frontend/backend separation.
+
 ## Language Support
 
 - Supports both Korean and English in the dashboard UI.
