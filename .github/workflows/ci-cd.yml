@@ -82,14 +82,21 @@ jobs:
       - name: Write runtime env file (.env.runtime)
         shell: pwsh
         run: |
+          $db = "${{ secrets.POSTGRES_DB }}"
+          $user = "${{ secrets.POSTGRES_USER }}"
+          $pass = "${{ secrets.POSTGRES_PASSWORD }}"
+          $encodedUser = [uri]::EscapeDataString($user)
+          $encodedPass = [uri]::EscapeDataString($pass)
+          $databaseUrl = "postgresql+psycopg://$encodedUser`:$encodedPass@postgres:5432/$db"
           $envFile = ".env.runtime"
           @"
           GITHUB_OWNER=${{ github.repository_owner }}
           GITHUB_REPO=${{ github.event.repository.name }}
           IMAGE_TAG=latest
-          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB=$db
+          POSTGRES_USER=$user
+          POSTGRES_PASSWORD=$pass
+          DATABASE_URL=$databaseUrl
           TRADE_MODE=${{ secrets.TRADE_MODE }}
           UPBIT_ACCESS_KEY=${{ secrets.UPBIT_ACCESS_KEY }}
           UPBIT_SECRET_KEY=${{ secrets.UPBIT_SECRET_KEY }}
@@ -109,3 +116,8 @@ jobs:
           docker compose --env-file .env.runtime pull
           docker compose --env-file .env.runtime up -d --remove-orphans
           docker image prune -f
+      - name: Verify PostgreSQL bootstrap
+        shell: pwsh
+        run: |
+          docker exec qt-postgres pg_isready -U "${{ secrets.POSTGRES_USER }}" -d "${{ secrets.POSTGRES_DB }}"
+          docker exec qt-postgres psql -U "${{ secrets.POSTGRES_USER }}" -d "${{ secrets.POSTGRES_DB }}" -c "\dt"

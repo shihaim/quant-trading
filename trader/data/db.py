@@ -22,6 +22,10 @@ def create_session():
     """Create a new DB session."""
     return SessionLocal()
 
+
+def _is_sqlite_bind(bind) -> bool:
+    return bind.dialect.name == "sqlite"
+
 TABLE_DOCS_EN = {
     "bot_config": "Runtime control and risk configuration (single active row).",
     "timeframe_config": "Executable timeframe rows with enable flags.",
@@ -268,7 +272,7 @@ COLUMN_DOCS_KO = {
     },
 }
 
-KST_VIEW_SQL = {
+SQLITE_KST_VIEW_SQL = {
     "bot_config_kst": """
         CREATE VIEW bot_config_kst AS
         SELECT
@@ -423,16 +427,177 @@ KST_VIEW_SQL = {
     """,
 }
 
+POSTGRES_KST_VIEW_SQL = {
+    "bot_config_kst": """
+        CREATE VIEW bot_config_kst AS
+        SELECT
+            id,
+            is_enabled,
+            timeframe,
+            markets_json,
+            target_exposure_pct,
+            daily_loss_basis,
+            min_rebalance_threshold_pct,
+            min_order_krw_buffer,
+            fill_timeout_sec_entry,
+            fill_timeout_sec_exit,
+            fill_timeout_sec_rebalance,
+            max_reprice_attempts_entry,
+            max_reprice_attempts_exit,
+            max_reprice_attempts_rebalance,
+            reprice_step_bps,
+            slippage_budget_entry_pct,
+            slippage_budget_exit_pct,
+            slippage_budget_breach_halt_count,
+            status_notify_interval_seconds,
+            max_daily_loss_pct,
+            max_total_exposure_pct,
+            max_per_market_exposure_pct,
+            updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
+        FROM bot_config
+    """,
+    "timeframe_config_kst": """
+        CREATE VIEW timeframe_config_kst AS
+        SELECT
+            id,
+            timeframe,
+            is_enabled,
+            updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
+        FROM timeframe_config
+    """,
+    "candles_kst": """
+        CREATE VIEW candles_kst AS
+        SELECT
+            id,
+            market,
+            timeframe,
+            candle_time_utc AT TIME ZONE 'Asia/Seoul' AS candle_time_kst,
+            open,
+            high,
+            low,
+            close,
+            volume
+        FROM candles
+    """,
+    "orders_kst": """
+        CREATE VIEW orders_kst AS
+        SELECT
+            id,
+            market,
+            side,
+            ord_type,
+            requested_price,
+            requested_volume,
+            client_order_id,
+            intent,
+            upbit_identifier,
+            upbit_uuid,
+            state,
+            retry_count,
+            error_class,
+            last_error,
+            exchange_response_raw,
+            created_at AT TIME ZONE 'Asia/Seoul' AS created_at_kst,
+            updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
+        FROM orders
+    """,
+    "fills_kst": """
+        CREATE VIEW fills_kst AS
+        SELECT
+            id,
+            order_id,
+            trade_id,
+            price,
+            volume,
+            fee,
+            is_applied,
+            executed_at AT TIME ZONE 'Asia/Seoul' AS executed_at_kst
+        FROM fills
+    """,
+    "trade_metrics_kst": """
+        CREATE VIEW trade_metrics_kst AS
+        SELECT
+            id,
+            order_id,
+            intent,
+            intended_price,
+            filled_vwap_price,
+            slippage_abs,
+            slippage_pct,
+            fee_abs,
+            time_to_fill_ms,
+            partial_fill_count,
+            created_at AT TIME ZONE 'Asia/Seoul' AS created_at_kst
+        FROM trade_metrics
+    """,
+    "positions_kst": """
+        CREATE VIEW positions_kst AS
+        SELECT
+            market,
+            qty,
+            avg_price,
+            realized_pnl,
+            unrealized_pnl,
+            updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
+        FROM positions
+    """,
+    "daily_equity_kst": """
+        CREATE VIEW daily_equity_kst AS
+        SELECT
+            (date_utc::timestamp + INTERVAL '9 hours') AS date_kst,
+            start_equity,
+            start_realized_pnl,
+            last_equity,
+            realized_pnl,
+            unrealized_pnl,
+            daily_pnl_abs,
+            daily_pnl_pct,
+            updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
+        FROM daily_equity
+    """,
+    "paper_wallet_kst": """
+        CREATE VIEW paper_wallet_kst AS
+        SELECT
+            id,
+            cash_krw,
+            updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
+        FROM paper_wallet
+    """,
+    "schema_table_docs_kst": """
+        CREATE VIEW schema_table_docs_kst AS
+        SELECT
+            table_name,
+            description_en,
+            description_ko
+        FROM schema_table_docs
+    """,
+    "schema_column_docs_kst": """
+        CREATE VIEW schema_column_docs_kst AS
+        SELECT
+            table_name,
+            column_name,
+            description_en,
+            description_ko
+        FROM schema_column_docs
+    """,
+}
+
+
+def _get_kst_view_sql(bind) -> dict[str, str]:
+    if bind.dialect.name == "postgresql":
+        return POSTGRES_KST_VIEW_SQL
+    return SQLITE_KST_VIEW_SQL
+
 
 def run_lightweight_migrations() -> None:
     """Apply lightweight SQLite migrations without alembic."""
-    if not settings.database_url.startswith("sqlite"):
-        return
-
-    inspector = inspect(engine)
-    table_names = set(inspector.get_table_names())
-
     with engine.begin() as conn:
+        if not _is_sqlite_bind(conn):
+            return
+
+        inspector = inspect(conn)
+        table_names = set(inspector.get_table_names())
+
         if "orders" in table_names:
             order_cols = {col["name"] for col in inspector.get_columns("orders")}
             if "retry_count" not in order_cols:
@@ -557,24 +722,29 @@ def run_lightweight_migrations() -> None:
 
         conn.execute(text("DROP INDEX IF EXISTS ix_trade_metrics_order_id"))
 
-        existing = conn.execute(text("SELECT timeframe FROM timeframe_config")).fetchall()
-        existing_timeframes = {row[0] for row in existing}
-        for timeframe in SUPPORTED_TIMEFRAMES:
-            if timeframe not in existing_timeframes:
-                conn.execute(
-                    text("INSERT INTO timeframe_config (timeframe, is_enabled, updated_at) VALUES (:timeframe, 0, CURRENT_TIMESTAMP)"),
-                    {"timeframe": timeframe},
-                )
-        conn.execute(text("UPDATE timeframe_config SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"))
 
-        enabled_count = conn.execute(text("SELECT COUNT(*) FROM timeframe_config WHERE is_enabled = 1")).scalar_one()
-        if enabled_count == 0:
+def _seed_timeframe_config(conn) -> None:
+    table_names = set(inspect(conn).get_table_names())
+    if "timeframe_config" not in table_names:
+        return
+
+    existing = conn.execute(text("SELECT timeframe FROM timeframe_config")).fetchall()
+    existing_timeframes = {row[0] for row in existing}
+    for timeframe in SUPPORTED_TIMEFRAMES:
+        if timeframe not in existing_timeframes:
+            conn.execute(
+                text("INSERT INTO timeframe_config (timeframe, is_enabled, updated_at) VALUES (:timeframe, 0, CURRENT_TIMESTAMP)"),
+                {"timeframe": timeframe},
+            )
+    conn.execute(text("UPDATE timeframe_config SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"))
+
+    enabled_count = conn.execute(text("SELECT COUNT(*) FROM timeframe_config WHERE is_enabled = 1")).scalar_one()
+    if enabled_count == 0:
+        current = None
+        if "bot_config" in table_names:
             current = conn.execute(text("SELECT timeframe FROM bot_config WHERE id = 1")).scalar_one_or_none()
-            selected = current if current in SUPPORTED_TIMEFRAMES else "15m"
-            conn.execute(text("UPDATE timeframe_config SET is_enabled = CASE WHEN timeframe = :timeframe THEN 1 ELSE 0 END"), {"timeframe": selected})
-
-        _sync_schema_docs(conn)
-        _sync_kst_views(conn)
+        selected = current if current in SUPPORTED_TIMEFRAMES else "15m"
+        conn.execute(text("UPDATE timeframe_config SET is_enabled = CASE WHEN timeframe = :timeframe THEN 1 ELSE 0 END"), {"timeframe": selected})
 
 
 def _sync_schema_docs(conn) -> None:
@@ -603,17 +773,23 @@ def _sync_schema_docs(conn) -> None:
         )
     )
 
-    table_doc_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(schema_table_docs)")).fetchall()}
+    table_doc_cols = {col["name"] for col in inspect(conn).get_columns("schema_table_docs")}
+    table_desc_en_expr = "COALESCE(description, '')"
+    table_desc_ko_expr = "COALESCE(description, '')"
+    if "description_en" in table_doc_cols:
+        table_desc_en_expr = "COALESCE(NULLIF(description_en, ''), COALESCE(description, ''))"
+    if "description_ko" in table_doc_cols:
+        table_desc_ko_expr = "COALESCE(NULLIF(description_ko, ''), COALESCE(description, ''))"
     if "description" in table_doc_cols:
         conn.execute(text("CREATE TABLE schema_table_docs_new (table_name TEXT PRIMARY KEY, description_en TEXT NOT NULL DEFAULT '', description_ko TEXT NOT NULL DEFAULT '')"))
         conn.execute(
             text(
-                """
+                f"""
                 INSERT INTO schema_table_docs_new (table_name, description_en, description_ko)
                 SELECT
                     table_name,
-                    COALESCE(NULLIF(description_en, ''), COALESCE(description, '')),
-                    COALESCE(NULLIF(description_ko, ''), COALESCE(description, ''))
+                    {table_desc_en_expr},
+                    {table_desc_ko_expr}
                 FROM schema_table_docs
                 """
             )
@@ -621,7 +797,13 @@ def _sync_schema_docs(conn) -> None:
         conn.execute(text("DROP TABLE schema_table_docs"))
         conn.execute(text("ALTER TABLE schema_table_docs_new RENAME TO schema_table_docs"))
 
-    column_doc_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(schema_column_docs)")).fetchall()}
+    column_doc_cols = {col["name"] for col in inspect(conn).get_columns("schema_column_docs")}
+    column_desc_en_expr = "COALESCE(description, '')"
+    column_desc_ko_expr = "COALESCE(description, '')"
+    if "description_en" in column_doc_cols:
+        column_desc_en_expr = "COALESCE(NULLIF(description_en, ''), COALESCE(description, ''))"
+    if "description_ko" in column_doc_cols:
+        column_desc_ko_expr = "COALESCE(NULLIF(description_ko, ''), COALESCE(description, ''))"
     if "description" in column_doc_cols:
         conn.execute(
             text(
@@ -638,13 +820,13 @@ def _sync_schema_docs(conn) -> None:
         )
         conn.execute(
             text(
-                """
+                f"""
                 INSERT INTO schema_column_docs_new (table_name, column_name, description_en, description_ko)
                 SELECT
                     table_name,
                     column_name,
-                    COALESCE(NULLIF(description_en, ''), COALESCE(description, '')),
-                    COALESCE(NULLIF(description_ko, ''), COALESCE(description, ''))
+                    {column_desc_en_expr},
+                    {column_desc_ko_expr}
                 FROM schema_column_docs
                 """
             )
@@ -654,22 +836,32 @@ def _sync_schema_docs(conn) -> None:
 
     for table_name, description_en in TABLE_DOCS_EN.items():
         description_ko = TABLE_DOCS_KO.get(table_name, description_en)
-        conn.execute(
+        updated = conn.execute(
             text(
-                "INSERT OR REPLACE INTO schema_table_docs (table_name, description_en, description_ko) "
-                "VALUES (:table_name, :description_en, :description_ko)"
+                "UPDATE schema_table_docs "
+                "SET description_en = :description_en, description_ko = :description_ko "
+                "WHERE table_name = :table_name"
             ),
             {"table_name": table_name, "description_en": description_en, "description_ko": description_ko},
         )
+        if updated.rowcount == 0:
+            conn.execute(
+                text(
+                    "INSERT INTO schema_table_docs (table_name, description_en, description_ko) "
+                    "VALUES (:table_name, :description_en, :description_ko)"
+                ),
+                {"table_name": table_name, "description_en": description_en, "description_ko": description_ko},
+            )
 
     for table_name, columns_en in COLUMN_DOCS_EN.items():
         columns_ko = COLUMN_DOCS_KO.get(table_name, {})
         for column_name, description_en in columns_en.items():
             description_ko = columns_ko.get(column_name, description_en)
-            conn.execute(
+            updated = conn.execute(
                 text(
-                    "INSERT OR REPLACE INTO schema_column_docs (table_name, column_name, description_en, description_ko) "
-                    "VALUES (:table_name, :column_name, :description_en, :description_ko)"
+                    "UPDATE schema_column_docs "
+                    "SET description_en = :description_en, description_ko = :description_ko "
+                    "WHERE table_name = :table_name AND column_name = :column_name"
                 ),
                 {
                     "table_name": table_name,
@@ -678,10 +870,28 @@ def _sync_schema_docs(conn) -> None:
                     "description_ko": description_ko,
                 },
             )
+            if updated.rowcount == 0:
+                conn.execute(
+                    text(
+                        "INSERT INTO schema_column_docs (table_name, column_name, description_en, description_ko) "
+                        "VALUES (:table_name, :column_name, :description_en, :description_ko)"
+                    ),
+                    {
+                        "table_name": table_name,
+                        "column_name": column_name,
+                        "description_en": description_en,
+                        "description_ko": description_ko,
+                    },
+                )
 
 
 def _sync_kst_views(conn) -> None:
-    for view_name, sql in KST_VIEW_SQL.items():
+    required_tables = set(TABLE_DOCS_EN) | {"schema_table_docs", "schema_column_docs"}
+    existing_tables = set(inspect(conn).get_table_names())
+    if not required_tables.issubset(existing_tables):
+        return
+
+    for view_name, sql in _get_kst_view_sql(conn).items():
         conn.execute(text(f"DROP VIEW IF EXISTS {view_name}"))
         conn.execute(text(sql))
 
@@ -690,3 +900,7 @@ def initialize_database() -> None:
     """Create base schema and apply lightweight migrations."""
     Base.metadata.create_all(bind=engine)
     run_lightweight_migrations()
+    with engine.begin() as conn:
+        _seed_timeframe_config(conn)
+        _sync_schema_docs(conn)
+        _sync_kst_views(conn)

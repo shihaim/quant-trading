@@ -18,6 +18,9 @@ pip install -e .[dev]
 python -m trader.app.main
 ```
 
+Local CLI/dev runs still fall back to `sqlite:///./trading.db` unless `DATABASE_URL` is set.
+`docker-compose.yml` uses the bundled PostgreSQL service by default.
+
 ## Ops API (Dashboard MVP)
 
 Run a lightweight local API server for operations dashboard integration:
@@ -73,7 +76,7 @@ In `REAL/TEST/SHADOW` mode, both keys are required:
 - `UPBIT_ACCESS_KEY`
 - `UPBIT_SECRET_KEY`
 - `UPBIT_BASE_URL` (default: `https://api.upbit.com`)
-- `DATABASE_URL` (default: `sqlite:///./trading.db`)
+- `DATABASE_URL` (local fallback: `sqlite:///./trading.db`, docker compose default: `postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading`)
 - `POLL_INTERVAL_SECONDS` (default: `1`)
 - `CONFIG_RELOAD_SECONDS` (default: `15`)
 - `MIN_STRATEGY_CANDLES` (default: `120`)
