@@ -404,6 +404,24 @@ class TradingScheduler:
         logger.info("scheduler_status %s", msg)
         self.notifier.send(msg)
 
+    def _run_due_tick(self, state: SchedulerState, now: datetime) -> SchedulerState:
+        logger.info(
+            "scheduler_tick_triggered now=%s next_run_at=%s",
+            now.isoformat(),
+            state.next_run_at.isoformat(),
+        )
+        try:
+            self._run_once(state.runtime_config)
+        except Exception:
+            logger.exception(
+                "scheduler_run_once_failed timeframe=%s markets=%s",
+                state.runtime_config.timeframe,
+                state.runtime_config.markets,
+            )
+        state.next_run_at = next_run_time(now, state.runtime_config.timeframe)
+        logger.info("scheduler_next_run_scheduled next_run_at=%s", state.next_run_at.isoformat())
+        return state
+
     def run_forever(self) -> None:
         now = datetime.now(timezone.utc)
         cfg = self.config_repo.load()
@@ -431,14 +449,7 @@ class TradingScheduler:
                         seconds=max(300, state.runtime_config.status_notify_interval_seconds)
                     )
                 if now >= state.next_run_at:
-                    logger.info(
-                        "scheduler_tick_triggered now=%s next_run_at=%s",
-                        now.isoformat(),
-                        state.next_run_at.isoformat(),
-                    )
-                    self._run_once(state.runtime_config)
-                    state.next_run_at = next_run_time(now, state.runtime_config.timeframe)
-                    logger.info("scheduler_next_run_scheduled next_run_at=%s", state.next_run_at.isoformat())
+                    state = self._run_due_tick(state, now)
                 time.sleep(settings.poll_interval_seconds)
         finally:
             logger.info("scheduler_stopping")
