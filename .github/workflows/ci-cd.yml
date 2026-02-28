@@ -86,7 +86,7 @@ jobs:
           @"
           GITHUB_OWNER=${{ github.repository_owner }}
           GITHUB_REPO=${{ github.event.repository.name }}
-          IMAGE_TAG=${{ github.sha }}
+          IMAGE_TAG=latest
           POSTGRES_DB=${{ secrets.POSTGRES_DB }}
           POSTGRES_USER=${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
@@ -100,7 +100,9 @@ jobs:
       - name: Login to GHCR (stable user)
         shell: pwsh
         run: |
-          echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
+          $patFile = Join-Path $env:RUNNER_TEMP "ghcr_pat.txt"
+          Set-Content -Path $patFile -Value "${{ secrets.GHCR_PAT }}" -NoNewline
+          Get-Content $patFile | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
       - name: Pull & Up
         shell: pwsh
         run: |
