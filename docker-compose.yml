@@ -1,0 +1,103 @@
+version: "3.9"
+
+networks:
+  public:
+    name: qt_public
+  private:
+    name: qt_private
+    internal: true
+  data:
+    name: qt_data
+    internal: true
+
+volumes:
+  pg_data:
+  caddy_data:
+  caddy_config:
+  web_client_logs:
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: qt-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - public
+      - private
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: qt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trading}
+      POSTGRES_USER: ${POSTGRES_USER:-trader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trader} -d ${POSTGRES_DB:-trading}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ops-api:
+    image: ghcr.io/${GITHUB_OWNER}/${GITHUB_REPO}-ops-api:${IMAGE_TAG:-latest}
+    container_name: qt-ops-api
+    restart: unless-stopped
+    env_file:
+      - ./.env.runtime
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading}
+    networks:
+      - private
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Enable this after adding a real /health endpoint in ops-api.
+    # healthcheck:
+    #   test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+    #   interval: 15s
+    #   timeout: 5s
+    #   retries: 10
+
+  trader:
+    image: ghcr.io/${GITHUB_OWNER}/${GITHUB_REPO}-trader:${IMAGE_TAG:-latest}
+    container_name: qt-trader
+    restart: unless-stopped
+    env_file:
+      - ./.env.runtime
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading}
+    networks:
+      - private
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: ghcr.io/${GITHUB_OWNER}/${GITHUB_REPO}-web:${IMAGE_TAG:-latest}
+    container_name: qt-web
+    restart: unless-stopped
+    env_file:
+      - ./.env.runtime
+    environment:
+      # apps/web/lib/api.ts already prefixes requests with /api/...
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+      CLIENT_LOG_DIR: /var/log/qt
+    volumes:
+      - web_client_logs:/var/log/qt
+    networks:
+      - private
+    depends_on:
+      - ops-api
