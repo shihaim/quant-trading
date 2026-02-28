@@ -1,6 +1,8 @@
 networks:
   public:
     name: qt_public
+  local:
+    name: qt_local
   private:
     name: qt_private
     internal: true
@@ -34,7 +36,7 @@ services:
     container_name: qt-postgres
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:15432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-trading}
       POSTGRES_USER: ${POSTGRES_USER:-trader}
@@ -42,6 +44,7 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     networks:
+      - local
       - data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trader} -d ${POSTGRES_DB:-trading}"]
