@@ -733,18 +733,21 @@ def _seed_timeframe_config(conn) -> None:
     for timeframe in SUPPORTED_TIMEFRAMES:
         if timeframe not in existing_timeframes:
             conn.execute(
-                text("INSERT INTO timeframe_config (timeframe, is_enabled, updated_at) VALUES (:timeframe, 0, CURRENT_TIMESTAMP)"),
+                text("INSERT INTO timeframe_config (timeframe, is_enabled, updated_at) VALUES (:timeframe, false, CURRENT_TIMESTAMP)"),
                 {"timeframe": timeframe},
             )
     conn.execute(text("UPDATE timeframe_config SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"))
 
-    enabled_count = conn.execute(text("SELECT COUNT(*) FROM timeframe_config WHERE is_enabled = 1")).scalar_one()
+    enabled_count = conn.execute(text("SELECT COUNT(*) FROM timeframe_config WHERE is_enabled = true")).scalar_one()
     if enabled_count == 0:
         current = None
         if "bot_config" in table_names:
             current = conn.execute(text("SELECT timeframe FROM bot_config WHERE id = 1")).scalar_one_or_none()
         selected = current if current in SUPPORTED_TIMEFRAMES else "15m"
-        conn.execute(text("UPDATE timeframe_config SET is_enabled = CASE WHEN timeframe = :timeframe THEN 1 ELSE 0 END"), {"timeframe": selected})
+        conn.execute(
+            text("UPDATE timeframe_config SET is_enabled = CASE WHEN timeframe = :timeframe THEN true ELSE false END"),
+            {"timeframe": selected},
+        )
 
 
 def _sync_schema_docs(conn) -> None:
