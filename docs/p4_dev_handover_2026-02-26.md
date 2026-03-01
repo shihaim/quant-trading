@@ -93,7 +93,7 @@ PowerShell 정책으로 `npm`이 막히면 `npm.cmd` 사용.
 ### 4.3 환경변수
 
 - 백엔드: `OPS_API_ALLOW_ORIGIN`
-- 프론트: `NEXT_PUBLIC_API_BASE_URL` (기본 `http://127.0.0.1:8080`)
+- 프론트: `NEXT_PUBLIC_API_BASE_URL` (로컬 개발은 `http://127.0.0.1:8080`, Caddy 배포는 빈 값)
 
 ## 5) 검증 결과
 
@@ -113,4 +113,3 @@ PowerShell 정책으로 `npm`이 막히면 `npm.cmd` 사용.
 2. Bot Control 고도화(2단계 확인 + 변경 diff 표시)
 3. Orders 상세 페이지 확장(필터/정렬/액션)
 4. 국제화 프레임워크(next-intl) 도입 여부 검토
-

@@ -115,4 +115,10 @@ export function writeFrontendLog(
     (safeContext ? ` | ${safeContext}` : "") +
     "\n";
   fs.appendFileSync(filePath, line, { encoding: "utf-8" });
+  const consoleLine = line.trimEnd();
+  if (level === "ERROR") {
+    console.error(consoleLine);
+    return;
+  }
+  console.log(consoleLine);
 }

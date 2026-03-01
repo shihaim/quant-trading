@@ -143,7 +143,7 @@ GitHub Actions는 현재 3단계로 동작한다.
 
 현재 `docker-compose.yml` 기준 구성은 아래와 같다.
 
-- `caddy`: 외부 80 포트 진입점
+- `caddy`: 외부 80/443 포트 진입점 (`qt-dashboard.local`, `tls internal`)
 - `web`: Next.js 운영 프론트
 - `ops-api`: 운영용 API
 - `trader`: 메인 트레이딩 런타임
@@ -155,19 +155,22 @@ GitHub Actions는 현재 3단계로 동작한다.
 - `private`: 내부 앱 통신용 (`internal: true`)
 - `data`: 데이터 계층용 (`internal: true`)
 - `local`: 운영자 로컬 DB 접근용
+- `egress`: `trader`의 외부 거래소 통신용
 
 실제 연결:
 
 - `caddy` -> `public`, `private`
 - `web` -> `private`
 - `ops-api` -> `private`, `data`
-- `trader` -> `private`, `data`
+- `trader` -> `private`, `data`, `egress`
 - `postgres` -> `local`, `data`
 
 ### 4.3 프록시 라우팅
 
 `infra/caddy/Caddyfile` 기준 라우팅은 다음과 같다.
 
+- site address: `qt-dashboard.local`
+- TLS: `tls internal`
 - `/api/logs*` -> `web:3000`
 - `/api/*` -> `ops-api:8080`
 - 그 외 전체 -> `web:3000`
@@ -316,7 +319,7 @@ if ([string]::IsNullOrWhiteSpace("${{ secrets.TRADE_MODE }}")) { throw "TRADE_MO
 - SQLite 기존 데이터의 실제 이관 (`pgloader`, ETL 스크립트 등)
 - Alembic 같은 정식 마이그레이션 체계
 - ops-api용 실제 `/health` 엔드포인트 구현
-- Caddy TLS(443) 운영
+- 공인 도메인/인증서 기반 Caddy TLS 운영 고도화
 - Basic Auth 등 대시보드 보호 설정 활성화
 
 즉 현재 상태는 "운영 베이스 1차 완성"이며, "데이터 이관 / 보안 강화 / 정식 마이그레이션"은 후속 범위다.

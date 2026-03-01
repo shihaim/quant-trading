@@ -398,6 +398,7 @@ class ExecutionEngine:
                 price_str=self._to_exchange_str(price),
                 volume_str=volume_str,
                 chance=chance,
+                renew_identifier=attempt > 1,
             )
             if timeout <= 0:
                 return result
@@ -418,9 +419,16 @@ class ExecutionEngine:
             logger.warning("execution_market_fallback order_id=%s", order.id)
         return order
 
-    def _submit_real_with_recovery(self, order: Order, price_str: str, volume_str: str, chance: dict) -> Order:
+    def _submit_real_with_recovery(
+        self,
+        order: Order,
+        price_str: str,
+        volume_str: str,
+        chance: dict,
+        renew_identifier: bool = False,
+    ) -> Order:
         """실주문은 1회 전송 후, 실패 시 재전송 없이 identifier 조회 복구만 수행한다."""
-        if not order.upbit_identifier:
+        if renew_identifier or not order.upbit_identifier:
             order.upbit_identifier = self._new_upbit_identifier(order.market, order.side)
         logger.info(
             "execution_submit_real_start order_id=%s market=%s side=%s identifier=%s",

@@ -48,6 +48,8 @@ For split frontend/backend deployment, allow CORS with:
 
 Next.js frontend lives in `apps/web` and runs as a separate process.
 
+For local frontend development, run it directly against the backend API:
+
 ```bash
 python -m trader.app.ops_api --host 127.0.0.1 --port 8080
 cd apps/web
@@ -58,7 +60,14 @@ npm run dev
 Open:
 
 - `http://127.0.0.1:3000`
-- set `NEXT_PUBLIC_API_BASE_URL` for backend endpoint (default: `http://127.0.0.1:8080`)
+- set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080` for direct frontend dev
+
+For Compose/Caddy deployment, open:
+
+- `https://qt-dashboard.local`
+- add a local hosts entry for `qt-dashboard.local` pointing to `127.0.0.1`
+- leave `NEXT_PUBLIC_API_BASE_URL` empty to use same-origin `/api/*` routing through Caddy
+- trust the Caddy local CA on your host OS if your browser warns about the certificate
 
 ## Modes
 

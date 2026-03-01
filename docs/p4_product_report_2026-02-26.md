@@ -66,9 +66,11 @@
 3. 접속  
 `http://127.0.0.1:3000`
 
+현재 Compose/Caddy 운영 경로는 `https://qt-dashboard.local`이다.
+
 ### 5.2 분리 배포 설정
 
-- 프론트: `NEXT_PUBLIC_API_BASE_URL`
+- 프론트: `NEXT_PUBLIC_API_BASE_URL` (로컬 개발은 `http://127.0.0.1:8080`, Caddy 배포는 빈 값)
 - 백엔드 CORS: `OPS_API_ALLOW_ORIGIN`
 
 ## 6) 이번 단계 한계
@@ -83,4 +85,3 @@
 2. Orders 상세/필터 확장(상태 머신 중심)
 3. PnL 비교 뷰(TOTAL vs REALIZED_ONLY 동시 시각화)
 4. 운영 인증(최소 IP 제한 또는 간단 인증)
-

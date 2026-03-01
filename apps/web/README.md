@@ -30,11 +30,22 @@ npm run dev
 
 ## Environment
 
-Set frontend API endpoint:
+For direct local development:
 
 ```bash
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080
 ```
+
+For Compose/Caddy deployment:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=
+```
+
+- Open `https://qt-dashboard.local`
+- Add a local hosts entry for `qt-dashboard.local` pointing to `127.0.0.1`
+- Leave `NEXT_PUBLIC_API_BASE_URL` empty so the browser uses same-origin `/api/*`
+- Trust the Caddy local CA on your host OS if your browser warns about the certificate
 
 Frontend file logging (stored separately from backend logs):
 

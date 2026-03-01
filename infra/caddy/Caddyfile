@@ -1,4 +1,5 @@
-:80 {
+qt-dashboard.local {
+  tls internal
   # Optional dashboard protection.
   # basicauth /* {
   #   admin <bcrypt-hash>

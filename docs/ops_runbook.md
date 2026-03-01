@@ -1,7 +1,7 @@
 # Ops Runbook
 
 - 작성일: 2026-02-26
-- 최종 수정: 2026-02-28
+- 최종 수정: 2026-03-01
 - 대상: 운영/개발 공용
 
 ## 1) 관련 문서와 현재 운영 전제
@@ -62,6 +62,8 @@ docker compose --env-file .env.runtime up -d --force-recreate
 
 라우팅 확인 포인트:
 
+- 외부 대시보드 진입은 `https://qt-dashboard.local` (Caddy `443`, `tls internal`)
+- 호스트 OS에서 `qt-dashboard.local -> 127.0.0.1` hosts 설정 및 Caddy 로컬 CA 신뢰 여부 확인
 - `/api/logs*`는 `web`으로 전달
 - 나머지 `/api/*`는 `ops-api`로 전달
 - 그 외 요청은 `web`으로 전달

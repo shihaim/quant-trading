@@ -48,6 +48,8 @@ python -m trader.app.ops_api --host 127.0.0.1 --port 8080
 
 Next.js 프론트엔드는 `apps/web`에 있으며 별도 프로세스로 실행됩니다.
 
+로컬 프론트엔드 개발 시에는 백엔드 API에 직접 연결해 실행합니다.
+
 ```bash
 python -m trader.app.ops_api --host 127.0.0.1 --port 8080
 cd apps/web
@@ -58,7 +60,14 @@ npm run dev
 접속:
 
 - `http://127.0.0.1:3000`
-- 백엔드 엔드포인트는 `NEXT_PUBLIC_API_BASE_URL`로 설정합니다 (기본값: `http://127.0.0.1:8080`)
+- 직접 개발 실행 시 `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080`로 설정합니다
+
+Compose/Caddy 배포 경로:
+
+- `https://qt-dashboard.local`
+- `qt-dashboard.local`이 `127.0.0.1`을 가리키도록 hosts에 추가합니다
+- Caddy를 통한 same-origin `/api/*` 라우팅을 쓰려면 `NEXT_PUBLIC_API_BASE_URL`을 비워 둡니다
+- 브라우저가 경고하면 호스트 OS에서 Caddy 로컬 CA를 신뢰 처리합니다
 
 ## 모드
 

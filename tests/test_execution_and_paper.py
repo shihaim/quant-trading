@@ -6,9 +6,11 @@ import httpx
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+import trader.trading.execution as execution_module
 from trader.data.db import Base
 from trader.data.models import Order
 from trader.trading.execution import ExecutionEngine
+from trader.trading.order_policy import OrderPolicyConfig
 from trader.trading.paper_execution import PaperExecutionEngine
 from trader.trading.portfolio import PortfolioService
 
@@ -17,6 +19,7 @@ class FakeUpbitClient:
     def __init__(self):
         self.created: dict[str, dict] = {}
         self.create_calls = 0
+        self.submitted_identifiers: list[str | None] = []
         self.test_calls = 0
         self.fail_create_once = False
         self.get_order_state = "done"
@@ -35,6 +38,7 @@ class FakeUpbitClient:
 
     def create_order(self, market, side, ord_type, volume=None, price=None, identifier=None):
         self.create_calls += 1
+        self.submitted_identifiers.append(identifier)
         if self.fail_create_once:
             self.fail_create_once = False
             req = httpx.Request("POST", "https://api.upbit.com/v1/orders")
@@ -220,6 +224,44 @@ def test_conflicting_open_order_is_canceled_before_new_side_order():
     refreshed_first = session.get(Order, first.id)
     assert refreshed_first is not None
     assert refreshed_first.state == "CANCELED"
+
+
+def test_reprice_uses_new_upbit_identifier(monkeypatch):
+    session = _session()
+    client = FakeUpbitClient()
+    client.get_order_state = "wait"
+    engine = ExecutionEngine(
+        session=session,
+        upbit_client=client,
+        max_submit_retries=2,
+        retry_backoff_seconds=0,
+        trade_mode="REAL",
+    )
+    monotonic_values = iter([0.0, 2.0, 10.0, 12.0])
+    monkeypatch.setattr(execution_module.time, "monotonic", lambda: next(monotonic_values))
+
+    order = engine.place_target_order(
+        market="KRW-BTC",
+        current_qty=Decimal("0"),
+        target_qty=Decimal("1"),
+        ref_price=Decimal("10000"),
+        idempotency_key="reprice-identifier",
+        policy_config=OrderPolicyConfig(
+            fill_timeout_sec_entry=1,
+            fill_timeout_sec_exit=4,
+            fill_timeout_sec_rebalance=10,
+            max_reprice_attempts_entry=2,
+            max_reprice_attempts_exit=1,
+            max_reprice_attempts_rebalance=1,
+            reprice_step_bps=10,
+            allow_market_fallback_on_exit=False,
+        ),
+    )
+
+    assert order is not None
+    assert client.create_calls == 2
+    assert len(client.submitted_identifiers) == 2
+    assert client.submitted_identifiers[0] != client.submitted_identifiers[1]
 
 
 def test_paper_execution_updates_wallet_and_position_once():

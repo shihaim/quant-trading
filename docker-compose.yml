@@ -9,6 +9,8 @@ networks:
   data:
     name: qt_data
     internal: true
+  egress:
+    name: qt_egress
 
 volumes:
   pg_data:
@@ -23,6 +25,7 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     networks:
       - public
       - private
@@ -84,6 +87,7 @@ services:
     networks:
       - private
       - data
+      - egress
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,7 +101,7 @@ services:
     environment:
       # apps/web/lib/api.ts already prefixes requests with /api/...
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
-      CLIENT_LOG_DIR: /var/log/qt
+      WEB_LOG_DIR: /var/log/qt
     volumes:
       - web_client_logs:/var/log/qt
     networks:
