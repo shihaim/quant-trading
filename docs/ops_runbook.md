@@ -1,12 +1,13 @@
 # Ops Runbook
 
 - 작성일: 2026-02-26
-- 최종 수정: 2026-03-01
+- 최종 수정: 2026-03-02
 - 대상: 운영/개발 공용
 
 ## 1) 관련 문서와 현재 운영 전제
 
 - 인프라 변경 상세: `docs/infra_handover_2026-02-28.md`
+- PC 간 PostgreSQL 마이그레이션 런북: `docs/cross_pc_postgres_migration_runbook_2026-03-02.md`
 - 현재 운영 기본 경로는 GitHub Actions + self-hosted runner + Docker Compose
 - Compose 기본 DB는 PostgreSQL
 - 로컬 CLI 직접 실행 시 `DATABASE_URL`이 없으면 여전히 `sqlite:///./trading.db`로 fallback 가능
