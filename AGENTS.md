@@ -15,3 +15,7 @@
 8. Exclude build artifacts (`.next`) and dependencies (`node_modules`) from commit/review scope.
 9. Share only key error lines/stack excerpts instead of full build logs.
 10. Default to summary-first; expand only when explicitly requested.
+
+## Commit Message Requests
+
+- If the user asks for a commit message, read `.github/commit-message.instructions.md` first and follow it before drafting the message.

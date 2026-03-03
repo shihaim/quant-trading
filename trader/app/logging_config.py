@@ -4,6 +4,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 
 class MaxLevelFilter(logging.Filter):
@@ -15,6 +16,42 @@ class MaxLevelFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         return record.levelno <= self.max_level
+
+
+def mask_connection_secret(value: str) -> str:
+    """Mask password segments in DSN-style values while preserving routing context."""
+
+    if not value:
+        return value
+
+    parsed = urlsplit(value)
+    if not parsed.scheme or not parsed.netloc:
+        return value
+
+    if parsed.password is None or parsed.hostname is None:
+        return value
+
+    host = parsed.hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+
+    userinfo = ""
+    if parsed.username:
+        userinfo = f"{parsed.username}:***@"
+
+    netloc = userinfo + host
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+
+    return urlunsplit(
+        SplitResult(
+            scheme=parsed.scheme,
+            netloc=netloc,
+            path=parsed.path,
+            query=parsed.query,
+            fragment=parsed.fragment,
+        )
+    )
 
 
 def configure_file_logging(

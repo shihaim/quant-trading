@@ -1,6 +1,6 @@
 import logging
 
-from trader.app.logging_config import configure_file_logging
+from trader.app.logging_config import configure_file_logging, mask_connection_secret
 from trader.config.settings import settings
 from trader.data.db import SessionLocal, initialize_database
 from trader.trading.scheduler import TradingScheduler
@@ -19,7 +19,7 @@ def main() -> None:
     logger.info(
         "app_start mode=%s db=%s poll_interval=%s reload_interval=%s",
         settings.trade_mode,
-        settings.database_url,
+        mask_connection_secret(settings.database_url),
         settings.poll_interval_seconds,
         settings.config_reload_seconds,
     )
