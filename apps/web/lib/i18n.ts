@@ -27,6 +27,9 @@ export type DashboardText = {
   last: string;
   realized: string;
   unrealized: string;
+  triggered: string;
+  threshold: string;
+  currentPnl: string;
   ordersRisk: string;
   needsReviewTop: string;
   updated: string;
@@ -39,10 +42,29 @@ export type DashboardText = {
   avgSlippage: string;
   p95Slippage: string;
   avgFillTime: string;
+  avgPartialFills: string;
   breach24h: string;
   executed: string;
   slipPct: string;
   fillMs: string;
+  configSummary: string;
+  timeframe: string;
+  markets: string;
+  dailyLossLimit: string;
+  targetExposure: string;
+  maxTotalExposure: string;
+  maxPerMarket: string;
+  minRebalance: string;
+  minOrderBuffer: string;
+  fillTimeouts: string;
+  reprice: string;
+  slippageBudget: string;
+  notifyInterval: string;
+  updatedAt: string;
+  viewPnl: string;
+  viewOrders: string;
+  viewExecution: string;
+  viewControl: string;
   statusRunning: string;
   statusHalted: string;
   statusDisabled: string;
@@ -84,6 +106,9 @@ export const DASHBOARD_TEXT: Record<LocaleCode, DashboardText> = {
     last: "Last",
     realized: "Realized",
     unrealized: "Unrealized",
+    triggered: "Triggered",
+    threshold: "Threshold",
+    currentPnl: "Current PnL",
     ordersRisk: "Orders / Risk Snapshot",
     needsReviewTop: "Needs Review (Top 10)",
     updated: "Updated",
@@ -96,10 +121,29 @@ export const DASHBOARD_TEXT: Record<LocaleCode, DashboardText> = {
     avgSlippage: "Avg Slippage",
     p95Slippage: "P95 Slippage",
     avgFillTime: "Avg Fill Time",
+    avgPartialFills: "Avg Partial Fills",
     breach24h: "24h Breach",
     executed: "Executed",
     slipPct: "Slip %",
     fillMs: "Fill ms",
+    configSummary: "Config Summary",
+    timeframe: "Timeframe",
+    markets: "Markets",
+    dailyLossLimit: "Daily Loss Limit",
+    targetExposure: "Target Exposure",
+    maxTotalExposure: "Max Total Exposure",
+    maxPerMarket: "Max Per Market",
+    minRebalance: "Min Rebalance",
+    minOrderBuffer: "Min Order Buffer",
+    fillTimeouts: "Fill Timeouts",
+    reprice: "Reprice",
+    slippageBudget: "Slippage Budget",
+    notifyInterval: "Notify Interval",
+    updatedAt: "Updated At",
+    viewPnl: "Open PnL",
+    viewOrders: "Open Orders",
+    viewExecution: "Open Execution",
+    viewControl: "Open Bot Control",
     statusRunning: "RUNNING",
     statusHalted: "HALTED",
     statusDisabled: "DISABLED",
@@ -139,6 +183,9 @@ export const DASHBOARD_TEXT: Record<LocaleCode, DashboardText> = {
     last: "현재 자산",
     realized: "실현 손익",
     unrealized: "미실현 손익",
+    triggered: "발생 시각",
+    threshold: "임계값",
+    currentPnl: "현재 손익",
     ordersRisk: "주문 / 리스크 요약",
     needsReviewTop: "검토 필요 주문 (상위 10건)",
     updated: "업데이트",
@@ -151,10 +198,29 @@ export const DASHBOARD_TEXT: Record<LocaleCode, DashboardText> = {
     avgSlippage: "평균 슬리피지",
     p95Slippage: "P95 슬리피지",
     avgFillTime: "평균 체결 시간",
+    avgPartialFills: "평균 부분 체결",
     breach24h: "24시간 초과",
     executed: "체결 시각",
     slipPct: "슬리피지 %",
     fillMs: "체결 ms",
+    configSummary: "설정 요약",
+    timeframe: "타임프레임",
+    markets: "마켓",
+    dailyLossLimit: "일일 손실 한도",
+    targetExposure: "목표 노출",
+    maxTotalExposure: "총 최대 노출",
+    maxPerMarket: "마켓당 최대 노출",
+    minRebalance: "최소 리밸런스",
+    minOrderBuffer: "최소 주문 버퍼",
+    fillTimeouts: "체결 대기 시간",
+    reprice: "재호가",
+    slippageBudget: "슬리피지 예산",
+    notifyInterval: "알림 주기",
+    updatedAt: "업데이트 시각",
+    viewPnl: "PnL 열기",
+    viewOrders: "주문 열기",
+    viewExecution: "체결 지표 열기",
+    viewControl: "봇 제어 열기",
     statusRunning: "실행중",
     statusHalted: "중지됨",
     statusDisabled: "비활성",
@@ -168,4 +234,3 @@ export const DASHBOARD_TEXT: Record<LocaleCode, DashboardText> = {
     rebalance: "리밸런스"
   }
 };
-

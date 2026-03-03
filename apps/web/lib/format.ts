@@ -37,6 +37,20 @@ export function asInt(value: number | null | undefined, locale: IntlLocale = "en
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value);
 }
 
+export function asDecimal(
+  value: number | null | undefined,
+  locale: IntlLocale = "en-US",
+  fractionDigits = 2
+): string {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "-";
+  }
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: fractionDigits
+  }).format(value);
+}
+
 export function short(value: string | null | undefined, max = 42): string {
   if (!value) {
     return "-";

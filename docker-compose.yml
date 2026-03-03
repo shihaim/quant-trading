@@ -60,7 +60,7 @@ services:
     container_name: qt-ops-api
     restart: unless-stopped
     env_file:
-      - ./.env.runtime
+      - ${RUNTIME_ENV_FILE:-./.env.runtime}
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading}
     networks:
@@ -81,7 +81,7 @@ services:
     container_name: qt-trader
     restart: unless-stopped
     env_file:
-      - ./.env.runtime
+      - ${RUNTIME_ENV_FILE:-./.env.runtime}
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading}
     networks:
@@ -97,7 +97,7 @@ services:
     container_name: qt-web
     restart: unless-stopped
     env_file:
-      - ./.env.runtime
+      - ${RUNTIME_ENV_FILE:-./.env.runtime}
     environment:
       # apps/web/lib/api.ts already prefixes requests with /api/...
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}

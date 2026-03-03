@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { opsApi } from "../lib/api";
 import { sendClientLog, toErrorMessage } from "../lib/client-log";
-import { asInt, asKrw, asPct, asTime, short } from "../lib/format";
+import { asDecimal, asInt, asKrw, asPct, asTime, short } from "../lib/format";
 import { DASHBOARD_TEXT, type DashboardText, type LocaleCode } from "../lib/i18n";
 import type { OpsSummary } from "../lib/types";
 
@@ -72,6 +73,20 @@ function toIntentLabel(intent: string | null | undefined, text: DashboardText): 
     return text.rebalance;
   }
   return intent || "-";
+}
+
+function toHaltThresholdLabel(summary: OpsSummary | null, text: DashboardText, locale: "en-US" | "ko-KR"): string {
+  if (!summary) {
+    return "-";
+  }
+  if (summary.halt.reason === "auto_halt_by_slippage") {
+    return `${text.entry} ${asPct(summary.config.slippage_budget_entry_pct, locale)} / ${text.exit} ${asPct(
+      summary.config.slippage_budget_exit_pct,
+      locale
+    )} / HALT ${asInt(summary.config.slippage_budget_breach_halt_count, locale)}`;
+  }
+  const threshold = Math.abs(summary.today_pnl.halt_threshold_pct || 0);
+  return threshold > 0 ? asPct(threshold, locale) : "-";
 }
 
 export function OpsDashboard() {
@@ -207,6 +222,7 @@ export function OpsDashboard() {
   const botStatusRaw = summary?.bot.status ?? "DISABLED";
   const botStatusLabel = toStatusLabel(botStatusRaw, text);
   const showAlert = Boolean(summary?.halt.is_halted || summary?.halt.reason);
+  const haltThresholdLabel = toHaltThresholdLabel(summary, text, intlLocale);
 
   return (
     <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
@@ -289,6 +305,18 @@ export function OpsDashboard() {
         <section className="panel border-danger/40 bg-rose-50/70 p-4">
           <h2 className="font-display text-lg">{text.alertTitle}</h2>
           <p className="mt-1 text-sm text-muted">{summary?.halt.message || text.noHaltMessage}</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <KpiCell
+              label={text.triggered}
+              value={asTime(summary?.halt.triggered_at_utc || summary?.bot.last_tick_utc, intlLocale)}
+            />
+            <KpiCell label={text.currentPnl} value={asPct(summary?.today_pnl.daily_pnl_pct, intlLocale)} />
+            <KpiCell label={text.threshold} value={haltThresholdLabel} />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <QuickLink href="/pnl">{text.viewPnl}</QuickLink>
+            <QuickLink href="/control">{text.viewControl}</QuickLink>
+          </div>
         </section>
       ) : null}
 
@@ -316,6 +344,10 @@ export function OpsDashboard() {
             <KpiCell label={text.last} value={asKrw(summary?.today_pnl.last_equity, intlLocale)} />
             <KpiCell label={text.realized} value={asKrw(summary?.today_pnl.realized_pnl, intlLocale)} />
             <KpiCell label={text.unrealized} value={asKrw(summary?.today_pnl.unrealized_pnl, intlLocale)} />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <QuickLink href="/pnl">{text.viewPnl}</QuickLink>
+            <QuickLink href="/control">{text.viewControl}</QuickLink>
           </div>
         </article>
 
@@ -363,17 +395,25 @@ export function OpsDashboard() {
               </tbody>
             </table>
           </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <QuickLink href="/orders">{text.viewOrders}</QuickLink>
+            <QuickLink href="/control">{text.viewControl}</QuickLink>
+          </div>
         </article>
       </section>
 
       <section className="panel p-4">
         <h2 className="font-display text-lg">{text.executionQuality}</h2>
-        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
           <KpiCell label={text.avgSlippage} value={asPct(summary?.execution_quality.kpi.avg_slippage_pct, intlLocale)} />
           <KpiCell label={text.p95Slippage} value={asPct(summary?.execution_quality.kpi.p95_slippage_pct, intlLocale)} />
           <KpiCell
             label={text.avgFillTime}
             value={`${asInt(summary?.execution_quality.kpi.avg_time_to_fill_ms, intlLocale)} ms`}
+          />
+          <KpiCell
+            label={text.avgPartialFills}
+            value={asDecimal(summary?.execution_quality.kpi.avg_partial_fill_count, intlLocale)}
           />
           <KpiCell label={text.breach24h} value={asInt(summary?.execution_quality.budget.breach_count_24h, intlLocale)} />
         </div>
@@ -410,8 +450,78 @@ export function OpsDashboard() {
             </tbody>
           </table>
         </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <QuickLink href="/execution">{text.viewExecution}</QuickLink>
+          <QuickLink href="/control">{text.viewControl}</QuickLink>
+        </div>
+      </section>
+
+      <section className="panel p-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="font-display text-lg">{text.configSummary}</h2>
+            <p className="text-sm text-muted">{text.updatedAt}: {asTime(summary?.config.updated_at_utc, intlLocale)}</p>
+          </div>
+          <QuickLink href="/control">{text.viewControl}</QuickLink>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          <KpiCell label={text.timeframe} value={summary?.config.timeframe || "-"} />
+          <KpiCell label={text.markets} value={summary ? summary.config.markets.join(", ") : "-"} />
+          <KpiCell
+            label={text.dailyLossLimit}
+            value={`${summary?.config.daily_loss_basis || "-"} / ${asPct(summary?.config.max_daily_loss_pct, intlLocale)}`}
+          />
+          <KpiCell label={text.targetExposure} value={asPct(summary?.config.target_exposure_pct, intlLocale)} />
+          <KpiCell label={text.maxTotalExposure} value={asPct(summary?.config.max_total_exposure_pct, intlLocale)} />
+          <KpiCell label={text.maxPerMarket} value={asPct(summary?.config.max_per_market_exposure_pct, intlLocale)} />
+          <KpiCell
+            label={text.minRebalance}
+            value={asPct(summary?.config.min_rebalance_threshold_pct, intlLocale)}
+          />
+          <KpiCell label={text.minOrderBuffer} value={asKrw(summary?.config.min_order_krw_buffer, intlLocale)} />
+          <KpiCell
+            label={text.fillTimeouts}
+            value={`${text.entry} ${asInt(summary?.config.fill_timeout_sec_entry, intlLocale)}s / ${text.exit} ${asInt(
+              summary?.config.fill_timeout_sec_exit,
+              intlLocale
+            )}s / ${text.rebalance} ${asInt(summary?.config.fill_timeout_sec_rebalance, intlLocale)}s`}
+          />
+          <KpiCell
+            label={text.reprice}
+            value={`${text.entry} ${asInt(summary?.config.max_reprice_attempts_entry, intlLocale)} / ${text.exit} ${asInt(
+              summary?.config.max_reprice_attempts_exit,
+              intlLocale
+            )} / ${text.rebalance} ${asInt(summary?.config.max_reprice_attempts_rebalance, intlLocale)} @ ${asInt(
+              summary?.config.reprice_step_bps,
+              intlLocale
+            )} bps`}
+          />
+          <KpiCell
+            label={text.slippageBudget}
+            value={`${text.entry} ${asPct(summary?.config.slippage_budget_entry_pct, intlLocale)} / ${text.exit} ${asPct(
+              summary?.config.slippage_budget_exit_pct,
+              intlLocale
+            )} / HALT ${asInt(summary?.config.slippage_budget_breach_halt_count, intlLocale)}`}
+          />
+          <KpiCell
+            label={text.notifyInterval}
+            value={`${asInt(summary?.config.status_notify_interval_seconds, intlLocale)}s`}
+          />
+          <KpiCell label={text.updatedAt} value={asTime(summary?.config.updated_at_utc, intlLocale)} />
+        </div>
       </section>
     </main>
+  );
+}
+
+function QuickLink({ href, children }: { href: string; children: string }) {
+  return (
+    <Link
+      href={href}
+      className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:border-black/20 hover:bg-black/5"
+    >
+      {children}
+    </Link>
   );
 }
 
@@ -445,7 +555,7 @@ function KpiCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-black/10 p-3">
       <p className="text-xs text-muted">{label}</p>
-      <p className="mt-1 font-display text-base">{value}</p>
+      <p className="mt-1 font-display text-base break-words">{value}</p>
     </div>
   );
 }

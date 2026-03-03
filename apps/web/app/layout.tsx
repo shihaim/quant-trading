@@ -1,16 +1,19 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { AppShell } from "../components/app-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Ops Dashboard",
-  description: "Quant trading operations dashboard"
+  title: "Ops Console",
+  description: "Quant trading operations console"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }
