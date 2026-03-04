@@ -31,6 +31,7 @@ TABLE_DOCS_EN = {
     "timeframe_config": "Executable timeframe rows with enable flags.",
     "candles": "OHLCV candle history by market and timeframe.",
     "orders": "Order intents and exchange status tracking.",
+    "order_attempts": "Per-attempt exchange submission and recovery history for each logical order.",
     "fills": "Trade fills linked to orders (idempotent by trade_id).",
     "trade_metrics": "Per-order execution quality metrics (VWAP, slippage, fill time).",
     "positions": "Current position state per market.",
@@ -100,6 +101,23 @@ COLUMN_DOCS_EN = {
         "created_at": "Creation timestamp.",
         "updated_at": "Last update timestamp.",
     },
+    "order_attempts": {
+        "id": "Primary key.",
+        "order_id": "Foreign key to orders.id.",
+        "attempt_no": "Monotonic attempt sequence within an order.",
+        "submit_reason": "Attempt reason (INITIAL/REPRICE/RECOVER).",
+        "requested_price": "Attempt-level requested limit price.",
+        "requested_volume": "Attempt-level requested order volume.",
+        "upbit_identifier": "Exchange identifier reserved for this attempt.",
+        "upbit_uuid": "Exchange order UUID for this attempt.",
+        "state": "Attempt-level local state.",
+        "retry_count": "Retry count for this attempt.",
+        "error_class": "Normalized attempt error class.",
+        "last_error": "Latest attempt error message.",
+        "exchange_response_raw": "Raw exchange payload snapshot for this attempt.",
+        "created_at": "Creation timestamp.",
+        "updated_at": "Last update timestamp.",
+    },
     "fills": {
         "id": "Primary key.",
         "order_id": "Foreign key to orders.id.",
@@ -154,6 +172,7 @@ TABLE_DOCS_KO = {
     "timeframe_config": "실행 대상 타임프레임과 활성화 상태.",
     "candles": "마켓/타임프레임별 OHLCV 캔들 이력.",
     "orders": "주문 의도와 거래소 상태 추적.",
+    "order_attempts": "논리 주문별 개별 제출/복구 시도 이력.",
     "fills": "주문과 연결된 체결 내역(trade_id 기준 멱등).",
     "trade_metrics": "주문별 집행 품질 지표(VWAP, 슬리피지, 체결 시간).",
     "positions": "마켓별 현재 포지션 상태.",
@@ -220,6 +239,23 @@ COLUMN_DOCS_KO = {
         "error_class": "정규화된 오류 클래스.",
         "last_error": "최신 오류 메시지.",
         "exchange_response_raw": "거래소 원본 응답 스냅샷.",
+        "created_at": "생성 시각.",
+        "updated_at": "마지막 수정 시각.",
+    },
+    "order_attempts": {
+        "id": "기본 키.",
+        "order_id": "orders.id 외래 키.",
+        "attempt_no": "주문 내 단조 증가 시도 순번.",
+        "submit_reason": "시도 사유(INITIAL/REPRICE/RECOVER).",
+        "requested_price": "시도 단위 요청 지정가 가격.",
+        "requested_volume": "시도 단위 요청 주문 수량.",
+        "upbit_identifier": "이 시도에 예약된 거래소 식별자.",
+        "upbit_uuid": "이 시도에 대응하는 거래소 주문 UUID.",
+        "state": "시도 단위 로컬 상태.",
+        "retry_count": "이 시도의 재시도 횟수.",
+        "error_class": "정규화된 시도 오류 클래스.",
+        "last_error": "최신 시도 오류 메시지.",
+        "exchange_response_raw": "이 시도의 거래소 원본 응답 스냅샷.",
         "created_at": "생성 시각.",
         "updated_at": "마지막 수정 시각.",
     },
@@ -723,6 +759,78 @@ def run_lightweight_migrations() -> None:
         conn.execute(text("DROP INDEX IF EXISTS ix_trade_metrics_order_id"))
 
 
+def _backfill_order_attempts(conn) -> None:
+    """Backfill one synthetic attempt row per legacy order when no attempts exist."""
+    inspector = inspect(conn)
+    table_names = set(inspector.get_table_names())
+    if "orders" not in table_names or "order_attempts" not in table_names:
+        return
+
+    attempt_cols = {col["name"] for col in inspector.get_columns("order_attempts")}
+    required = {
+        "order_id",
+        "attempt_no",
+        "submit_reason",
+        "requested_price",
+        "requested_volume",
+        "upbit_identifier",
+        "upbit_uuid",
+        "state",
+        "retry_count",
+        "error_class",
+        "last_error",
+        "exchange_response_raw",
+        "created_at",
+        "updated_at",
+    }
+    if not required.issubset(attempt_cols):
+        return
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO order_attempts (
+                order_id,
+                attempt_no,
+                submit_reason,
+                requested_price,
+                requested_volume,
+                upbit_identifier,
+                upbit_uuid,
+                state,
+                retry_count,
+                error_class,
+                last_error,
+                exchange_response_raw,
+                created_at,
+                updated_at
+            )
+            SELECT
+                o.id,
+                1,
+                'INITIAL',
+                o.requested_price,
+                o.requested_volume,
+                o.upbit_identifier,
+                o.upbit_uuid,
+                COALESCE(o.state, 'NEW'),
+                COALESCE(o.retry_count, 0),
+                o.error_class,
+                o.last_error,
+                o.exchange_response_raw,
+                o.created_at,
+                o.updated_at
+            FROM orders o
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM order_attempts a
+                WHERE a.order_id = o.id
+            )
+            """
+        )
+    )
+
+
 def _seed_timeframe_config(conn) -> None:
     table_names = set(inspect(conn).get_table_names())
     if "timeframe_config" not in table_names:
@@ -904,6 +1012,7 @@ def initialize_database() -> None:
     Base.metadata.create_all(bind=engine)
     run_lightweight_migrations()
     with engine.begin() as conn:
+        _backfill_order_attempts(conn)
         _seed_timeframe_config(conn)
         _sync_schema_docs(conn)
         _sync_kst_views(conn)

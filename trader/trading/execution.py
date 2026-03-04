@@ -8,10 +8,10 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR
 from typing import Iterable
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from trader.data.models import Fill, Order, TradeMetric
+from trader.data.models import Fill, Order, OrderAttempt, TradeMetric
 from trader.exchange.upbit_client import UpbitClient
 from trader.trading.error_handling import OrderValidationError, classify_exception
 from trader.trading.order_policy import OrderIntent, OrderPolicy, OrderPolicyConfig, resolve_intent
@@ -274,14 +274,23 @@ class ExecutionEngine:
             logger.debug("execution_sync_skip_no_uuid order_id=%s client_order_id=%s", order.id, order.client_order_id)
             return order
         status = self.upbit_client.get_order(order.upbit_uuid)
+        attempt_row = self._attempt_for_order(order)
         order.state = self._map_state(status.get("state"))
         order.exchange_response_raw = json.dumps(status, ensure_ascii=False)
+        if attempt_row is not None:
+            attempt_row.upbit_uuid = order.upbit_uuid
+            attempt_row.state = order.state
+            attempt_row.exchange_response_raw = order.exchange_response_raw
+            attempt_row.error_class = None
+            attempt_row.last_error = None
         self._upsert_fills(order=order, status=status)
         self._upsert_trade_metric(order)
         executed = Decimal(str(status.get("executed_volume", "0")))
         requested = Decimal(order.requested_volume or 0)
         if order.state == "OPEN" and executed > 0 and executed < requested:
             order.state = "PARTIAL"
+        if attempt_row is not None:
+            attempt_row.state = order.state
         self.session.commit()
         self.session.refresh(order)
         logger.info(
@@ -316,10 +325,17 @@ class ExecutionEngine:
             logger.debug("execution_cancel_skip_no_uuid order_id=%s", order.id)
             return order
         try:
+            attempt_row = self._attempt_for_order(order)
             logger.info("execution_cancel_start order_id=%s upbit_uuid=%s", order.id, order.upbit_uuid)
             payload = self.upbit_client.cancel_order(order.upbit_uuid)
             order.state = self._map_state(payload.get("state"))
             order.exchange_response_raw = json.dumps({"cancel_response": payload}, ensure_ascii=False)
+            if attempt_row is not None:
+                attempt_row.upbit_uuid = order.upbit_uuid
+                attempt_row.state = order.state
+                attempt_row.exchange_response_raw = order.exchange_response_raw
+                attempt_row.error_class = None
+                attempt_row.last_error = None
             self._upsert_fills(order=order, status=payload)
             self.session.commit()
             self._upsert_trade_metric(order)
@@ -374,31 +390,36 @@ class ExecutionEngine:
     ) -> Order:
         tick = self._resolve_tick_size(chance, order.market, price)
         price_step = Decimal(policy.reprice_step_bps) / Decimal("10000")
-        attempts = max(1, int(policy.max_reprice_attempts))
+        max_attempts = max(1, int(policy.max_reprice_attempts))
         timeout = max(0, int(policy.fill_timeout_sec))
+        requested_volume = Decimal(volume_str)
 
-        for attempt in range(1, attempts + 1):
-            if attempt > 1 or policy.order_type == "AGGRESSIVE_LIMIT":
+        for cycle_no in range(1, max_attempts + 1):
+            if cycle_no > 1 or policy.order_type == "AGGRESSIVE_LIMIT":
                 multiplier = Decimal("1") + price_step if order.side == "bid" else Decimal("1") - price_step
                 if multiplier <= 0:
                     multiplier = Decimal("0.0001")
                 price = self._adjust_price_by_tick(price * multiplier, tick, order.side)
-                order.requested_price = price
-                self.session.commit()
             logger.info(
-                "execution_reprice_attempt order_id=%s attempt=%s/%s price=%s intent=%s",
+                "execution_reprice_attempt order_id=%s cycle=%s/%s price=%s intent=%s",
                 order.id,
-                attempt,
-                attempts,
+                cycle_no,
+                max_attempts,
                 price,
                 order.intent,
             )
+            attempt_row = self._begin_attempt(
+                order=order,
+                submit_reason="INITIAL" if cycle_no == 1 else "REPRICE",
+                requested_price=price,
+                requested_volume=requested_volume,
+            )
             result = self._submit_real_with_recovery(
                 order=order,
+                attempt_row=attempt_row,
                 price_str=self._to_exchange_str(price),
                 volume_str=volume_str,
                 chance=chance,
-                renew_identifier=attempt > 1,
             )
             if timeout <= 0:
                 return result
@@ -422,20 +443,19 @@ class ExecutionEngine:
     def _submit_real_with_recovery(
         self,
         order: Order,
+        attempt_row: OrderAttempt,
         price_str: str,
         volume_str: str,
         chance: dict,
-        renew_identifier: bool = False,
     ) -> Order:
         """실주문은 1회 전송 후, 실패 시 재전송 없이 identifier 조회 복구만 수행한다."""
-        if renew_identifier or not order.upbit_identifier:
-            order.upbit_identifier = self._new_upbit_identifier(order.market, order.side)
         logger.info(
-            "execution_submit_real_start order_id=%s market=%s side=%s identifier=%s",
+            "execution_submit_real_start order_id=%s attempt_no=%s market=%s side=%s identifier=%s",
             order.id,
+            attempt_row.attempt_no,
             order.market,
             order.side,
-            order.upbit_identifier,
+            attempt_row.upbit_identifier,
         )
         try:
             payload = self.upbit_client.create_order(
@@ -444,31 +464,35 @@ class ExecutionEngine:
                 ord_type=order.ord_type,
                 price=price_str,
                 volume=volume_str,
-                identifier=order.upbit_identifier,
+                identifier=attempt_row.upbit_identifier,
             )
-            order.upbit_uuid = payload.get("uuid")
-            order.state = self._map_state(payload.get("state"))
-            order.retry_count = 0
-            order.error_class = None
-            order.last_error = None
-            order.exchange_response_raw = json.dumps(
+            attempt_row.upbit_uuid = payload.get("uuid")
+            attempt_row.state = self._map_state(payload.get("state"))
+            attempt_row.retry_count = 0
+            attempt_row.error_class = None
+            attempt_row.last_error = None
+            attempt_row.exchange_response_raw = json.dumps(
                 {"chance": chance, "submit_response": payload},
                 ensure_ascii=False,
             )
+            self._mirror_attempt_to_order(order, attempt_row)
             self.session.commit()
             self.session.refresh(order)
             logger.info(
-                "execution_submit_real_done order_id=%s upbit_uuid=%s state=%s",
+                "execution_submit_real_done order_id=%s attempt_no=%s upbit_uuid=%s state=%s",
                 order.id,
+                attempt_row.attempt_no,
                 order.upbit_uuid,
                 order.state,
             )
             return self.sync_order(order)
         except Exception as exc:
             info = classify_exception(exc)
-            order.retry_count = 1
-            order.error_class = info.error_class
-            order.last_error = info.message
+            attempt_row.retry_count = 1
+            attempt_row.error_class = info.error_class
+            attempt_row.last_error = info.message
+            attempt_row.state = order.state or "NEW"
+            self._mirror_attempt_to_order(order, attempt_row)
             self.session.commit()
             logger.warning(
                 "실주문 전송 실패: order_id=%s error_class=%s message=%s",
@@ -477,12 +501,13 @@ class ExecutionEngine:
                 order.last_error,
             )
 
-        recovered = self._recover_order(order)
+        recovered = self._recover_order(order, attempt_row)
         if recovered:
             logger.info("execution_submit_real_recovered order_id=%s upbit_uuid=%s", recovered.id, recovered.upbit_uuid)
             return recovered
 
-        order.state = "ERROR_NEEDS_REVIEW"
+        attempt_row.state = "ERROR_NEEDS_REVIEW"
+        self._mirror_attempt_to_order(order, attempt_row)
         self.session.commit()
         self.session.refresh(order)
         logger.error("실주문 수동 검토 필요 상태 전환: order_id=%s", order.id)
@@ -524,50 +549,57 @@ class ExecutionEngine:
             self._persist_error(order, exc, default_state="REJECTED")
             return order
 
-    def _recover_order(self, order: Order) -> Order | None:
+    def _recover_order(self, order: Order, attempt_row: OrderAttempt) -> Order | None:
         """identifier 조회로 주문을 복구한다(재전송 금지)."""
-        if not order.upbit_identifier:
+        if not attempt_row.upbit_identifier:
             return None
-        for attempt in range(1, self.max_submit_retries + 1):
+        for recover_try in range(1, self.max_submit_retries + 1):
             logger.info(
-                "execution_recover_attempt order_id=%s attempt=%s/%s identifier=%s",
+                "execution_recover_attempt order_id=%s attempt_no=%s recover_try=%s/%s identifier=%s",
                 order.id,
-                attempt,
+                attempt_row.attempt_no,
+                recover_try,
                 self.max_submit_retries,
-                order.upbit_identifier,
+                attempt_row.upbit_identifier,
             )
             try:
-                payload = self.upbit_client.get_order_by_identifier(order.upbit_identifier)
+                payload = self.upbit_client.get_order_by_identifier(attempt_row.upbit_identifier)
                 if payload:
-                    order.upbit_uuid = payload.get("uuid")
-                    order.state = self._map_state(payload.get("state"))
-                    order.exchange_response_raw = json.dumps(payload, ensure_ascii=False)
+                    attempt_row.upbit_uuid = payload.get("uuid")
+                    attempt_row.state = self._map_state(payload.get("state"))
+                    attempt_row.exchange_response_raw = json.dumps(payload, ensure_ascii=False)
+                    attempt_row.retry_count = recover_try
+                    attempt_row.error_class = None
+                    attempt_row.last_error = None
+                    self._mirror_attempt_to_order(order, attempt_row)
                     self._upsert_fills(order=order, status=payload)
                     self.session.commit()
                     self._upsert_trade_metric(order)
                     self.session.refresh(order)
                     logger.info(
-                        "execution_recover_success order_id=%s attempt=%s upbit_uuid=%s state=%s",
+                        "execution_recover_success order_id=%s attempt_no=%s recover_try=%s upbit_uuid=%s state=%s",
                         order.id,
-                        attempt,
+                        attempt_row.attempt_no,
+                        recover_try,
                         order.upbit_uuid,
                         order.state,
                     )
                     return order
             except Exception as exc:
                 info = classify_exception(exc)
-                order.error_class = info.error_class
-                order.last_error = info.message
-                order.retry_count = attempt
+                attempt_row.error_class = info.error_class
+                attempt_row.last_error = info.message
+                attempt_row.retry_count = recover_try
+                self._mirror_attempt_to_order(order, attempt_row)
                 self.session.commit()
                 logger.warning(
                     "주문 복구 시도 실패: order_id=%s attempt=%s error_class=%s message=%s",
                     order.id,
-                    attempt,
+                    recover_try,
                     order.error_class,
                     order.last_error,
                 )
-            time.sleep(self.retry_backoff_seconds * attempt)
+            time.sleep(self.retry_backoff_seconds * recover_try)
         return None
 
     def _persist_error(self, order: Order, exc: Exception, default_state: str) -> None:
@@ -585,6 +617,9 @@ class ExecutionEngine:
             },
             ensure_ascii=False,
         )
+        attempt_row = self._attempt_for_order(order)
+        if attempt_row is not None:
+            self._mirror_order_to_attempt(order, attempt_row)
         self.session.commit()
         self.session.refresh(order)
         logger.warning(
@@ -596,6 +631,93 @@ class ExecutionEngine:
             order.error_class,
             order.last_error,
         )
+
+    def _begin_attempt(
+        self,
+        order: Order,
+        submit_reason: str,
+        requested_price: Decimal,
+        requested_volume: Decimal,
+    ) -> OrderAttempt:
+        attempt_row = OrderAttempt(
+            order_id=order.id,
+            attempt_no=self._next_attempt_no(order.id),
+            submit_reason=submit_reason,
+            requested_price=requested_price,
+            requested_volume=requested_volume,
+            upbit_identifier=self._reserve_unique_upbit_identifier(order.market, order.side),
+            state="NEW",
+            retry_count=0,
+        )
+        self.session.add(attempt_row)
+        self._mirror_attempt_to_order(order, attempt_row)
+        self.session.commit()
+        self.session.refresh(order)
+        self.session.refresh(attempt_row)
+        return attempt_row
+
+    def _next_attempt_no(self, order_id: int) -> int:
+        current = self.session.scalar(
+            select(func.max(OrderAttempt.attempt_no)).where(OrderAttempt.order_id == order_id)
+        )
+        return int(current or 0) + 1
+
+    def _reserve_unique_upbit_identifier(self, market: str, side: str) -> str:
+        for _ in range(10):
+            candidate = self._new_upbit_identifier(market, side)
+            exists = self.session.scalar(
+                select(OrderAttempt.id).where(OrderAttempt.upbit_identifier == candidate)
+            )
+            if exists is None:
+                return candidate
+        raise RuntimeError("failed to allocate unique upbit_identifier")
+
+    def _attempt_for_order(self, order: Order) -> OrderAttempt | None:
+        if order.upbit_uuid:
+            row = self.session.scalar(
+                select(OrderAttempt)
+                .where(OrderAttempt.order_id == order.id, OrderAttempt.upbit_uuid == order.upbit_uuid)
+                .order_by(OrderAttempt.attempt_no.desc(), OrderAttempt.id.desc())
+            )
+            if row is not None:
+                return row
+        if order.upbit_identifier:
+            row = self.session.scalar(
+                select(OrderAttempt)
+                .where(OrderAttempt.order_id == order.id, OrderAttempt.upbit_identifier == order.upbit_identifier)
+                .order_by(OrderAttempt.attempt_no.desc(), OrderAttempt.id.desc())
+            )
+            if row is not None:
+                return row
+        return self.session.scalar(
+            select(OrderAttempt)
+            .where(OrderAttempt.order_id == order.id)
+            .order_by(OrderAttempt.attempt_no.desc(), OrderAttempt.id.desc())
+        )
+
+    @staticmethod
+    def _mirror_attempt_to_order(order: Order, attempt_row: OrderAttempt) -> None:
+        order.requested_price = attempt_row.requested_price
+        order.requested_volume = attempt_row.requested_volume
+        order.upbit_identifier = attempt_row.upbit_identifier
+        order.upbit_uuid = attempt_row.upbit_uuid
+        order.state = attempt_row.state
+        order.retry_count = attempt_row.retry_count
+        order.error_class = attempt_row.error_class
+        order.last_error = attempt_row.last_error
+        order.exchange_response_raw = attempt_row.exchange_response_raw
+
+    @staticmethod
+    def _mirror_order_to_attempt(order: Order, attempt_row: OrderAttempt) -> None:
+        attempt_row.requested_price = order.requested_price
+        attempt_row.requested_volume = order.requested_volume
+        attempt_row.upbit_identifier = order.upbit_identifier
+        attempt_row.upbit_uuid = order.upbit_uuid
+        attempt_row.state = order.state
+        attempt_row.retry_count = order.retry_count
+        attempt_row.error_class = order.error_class
+        attempt_row.last_error = order.last_error
+        attempt_row.exchange_response_raw = order.exchange_response_raw
 
     @staticmethod
     def _build_client_order_id(idempotency_key: str, side: str) -> str:

@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from trader.data.models import BotConfig, Candle, Fill, Order, TimeframeConfig, TradeMetric
+from trader.data.models import BotConfig, Candle, Fill, Order, OrderAttempt, TimeframeConfig, TradeMetric
 from trader.migration.contracts import MigrationOptions, MigrationSummary, PrimaryTableName, TableStats
 from trader.migration.engines import (
     bootstrap_target_database,
@@ -207,6 +207,89 @@ class OrdersMigrator(BaseTableMigrator):
         return stats
 
 
+class OrderAttemptsMigrator(BaseTableMigrator):
+    table_name: PrimaryTableName = "order_attempts"
+    model = OrderAttempt
+
+    def run(self, context: MigrationContext) -> TableStats:
+        stats = self.plan(context)
+        target_missing = self.table_name in context.missing_target_tables
+
+        for batch in iter_rows_by_id(context.source_session, OrderAttempt, context.options.batch_size):
+            for source_row in batch:
+                target_order_id = context.order_id_map.resolve(source_row.order_id)
+                if target_order_id is None:
+                    stats.skipped += 1
+                    _warn_or_raise(
+                        context,
+                        stats,
+                        "OrderAttempt skipped for source attempt_id="
+                        f"{source_row.id}: missing order mapping for source order_id={source_row.order_id}",
+                    )
+                    continue
+
+                target_row = None
+                matched_by_fallback = False
+                if not target_missing:
+                    target_row = context.target_session.scalar(
+                        select(OrderAttempt).where(
+                            OrderAttempt.order_id == target_order_id,
+                            OrderAttempt.attempt_no == source_row.attempt_no,
+                        )
+                    )
+                    if target_row is None and source_row.upbit_uuid:
+                        target_row = context.target_session.scalar(
+                            select(OrderAttempt).where(OrderAttempt.upbit_uuid == source_row.upbit_uuid)
+                        )
+                        matched_by_fallback = target_row is not None
+                    if target_row is None and source_row.upbit_identifier:
+                        target_row = context.target_session.scalar(
+                            select(OrderAttempt).where(OrderAttempt.upbit_identifier == source_row.upbit_identifier)
+                        )
+                        matched_by_fallback = target_row is not None
+
+                if target_row is None:
+                    stats.inserted += 1
+                    if not context.options.dry_run:
+                        payload = _payload_from_row(source_row, exclude=("id", "order_id"))
+                        context.target_session.add(OrderAttempt(order_id=target_order_id, **payload))
+                    continue
+
+                if matched_by_fallback:
+                    _add_warning(
+                        stats,
+                        "OrderAttempt matched by exchange reference instead of (order_id, attempt_no): "
+                        f"source attempt_id={source_row.id}",
+                    )
+
+                if (
+                    target_row.submit_reason != source_row.submit_reason
+                    and source_row.submit_reason
+                    and target_row.submit_reason
+                ):
+                    _add_warning(
+                        stats,
+                        "OrderAttempt submit_reason differs for "
+                        f"target order_id={target_order_id} attempt_no={target_row.attempt_no}",
+                    )
+
+                if _source_is_newer(source_row.updated_at, target_row.updated_at) and _rows_differ(
+                    target_row,
+                    source_row,
+                    exclude=("id", "order_id", "attempt_no"),
+                ):
+                    stats.updated += 1
+                    if not context.options.dry_run:
+                        _assign_columns(target_row, source_row, exclude=("id", "order_id", "attempt_no"))
+                        target_row.order_id = target_order_id
+                else:
+                    stats.skipped += 1
+
+            if not context.options.dry_run:
+                context.target_session.commit()
+        return stats
+
+
 class FillsMigrator(BaseTableMigrator):
     table_name: PrimaryTableName = "fills"
     model = Fill
@@ -351,6 +434,7 @@ TABLE_MIGRATORS: dict[PrimaryTableName, BaseTableMigrator] = {
     "bot_config": BotConfigMigrator(),
     "timeframe_config": TimeframeConfigMigrator(),
     "orders": OrdersMigrator(),
+    "order_attempts": OrderAttemptsMigrator(),
     "fills": FillsMigrator(),
     "trade_metrics": TradeMetricsMigrator(),
     "candles": CandlesMigrator(),
@@ -387,7 +471,9 @@ class MigrationService:
                     missing_target_tables={table_name for table_name in options.tables if table_name not in target_tables},
                 )
 
-                if "orders" not in options.tables and any(name in options.tables for name in ("fills", "trade_metrics")):
+                if "orders" not in options.tables and any(
+                    name in options.tables for name in ("order_attempts", "fills", "trade_metrics")
+                ):
                     self._hydrate_order_id_map(context)
 
                 for table_name in options.tables:

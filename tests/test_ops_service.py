@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from trader.data.db import Base
-from trader.data.models import BotConfig, DailyEquity, Order, TradeMetric
+from trader.data.models import BotConfig, DailyEquity, Order, OrderAttempt, TradeMetric
 from trader.ops.service import OpsService
 
 
@@ -43,6 +43,37 @@ def _add_order(
         last_error=last_error,
         upbit_identifier=f"id-{client_order_id}",
         upbit_uuid=f"uuid-{client_order_id}",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _add_attempt(
+    session,
+    order: Order,
+    *,
+    attempt_no: int,
+    submit_reason: str = "INITIAL",
+    state: str = "OPEN",
+    upbit_identifier: str | None = None,
+    upbit_uuid: str | None = None,
+    error_class: str | None = None,
+    last_error: str | None = None,
+):
+    row = OrderAttempt(
+        order_id=order.id,
+        attempt_no=attempt_no,
+        submit_reason=submit_reason,
+        requested_price=order.requested_price,
+        requested_volume=order.requested_volume,
+        state=state,
+        upbit_identifier=upbit_identifier,
+        upbit_uuid=upbit_uuid,
+        error_class=error_class,
+        last_error=last_error,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -194,3 +225,47 @@ def test_ops_summary_marks_halted_when_disabled_and_loss_limit_breached():
     assert summary["halt"]["is_halted"] is True
     assert summary["halt"]["reason"] == "daily_loss_limit"
 
+
+def test_list_orders_prefers_latest_attempt_fields():
+    session = _session()
+    order = _add_order(
+        session,
+        state="WAIT",
+        client_order_id="order-attempt-view-1",
+        error_class=None,
+        last_error=None,
+    )
+    _add_attempt(
+        session,
+        order,
+        attempt_no=1,
+        submit_reason="INITIAL",
+        state="WAIT",
+        upbit_identifier="attempt-1",
+        upbit_uuid="uuid-attempt-1",
+    )
+    _add_attempt(
+        session,
+        order,
+        attempt_no=2,
+        submit_reason="REPRICE",
+        state="ERROR_NEEDS_REVIEW",
+        upbit_identifier="attempt-2",
+        upbit_uuid="uuid-attempt-2",
+        error_class="NETWORK_TIMEOUT",
+        last_error="timed out",
+    )
+    session.commit()
+
+    payload = OpsService(session=session, trade_mode="REAL").list_orders(limit=10)
+
+    assert payload["count"] == 1
+    item = payload["items"][0]
+    assert item["client_order_id"] == "order-attempt-view-1"
+    assert item["state"] == "ERROR_NEEDS_REVIEW"
+    assert item["error_class"] == "NETWORK_TIMEOUT"
+    assert item["last_error"] == "timed out"
+    assert item["upbit_identifier"] == "attempt-2"
+    assert item["upbit_uuid"] == "uuid-attempt-2"
+    assert item["attempt_no"] == 2
+    assert item["attempt_submit_reason"] == "REPRICE"

@@ -1,13 +1,14 @@
 # Ops Runbook
 
 - 작성일: 2026-02-26
-- 최종 수정: 2026-03-02
+- 최종 수정: 2026-03-04
 - 대상: 운영/개발 공용
 
 ## 1) 관련 문서와 현재 운영 전제
 
 - 인프라 변경 상세: `docs/infra_handover_2026-02-28.md`
 - PC 간 PostgreSQL 마이그레이션 런북: `docs/cross_pc_postgres_migration_runbook_2026-03-02.md`
+- `order_attempts` 운영 DB 반영 기록: `docs/order_attempts_rollout_2026-03-04.md`
 - 현재 운영 기본 경로는 GitHub Actions + self-hosted runner + Docker Compose
 - Compose 기본 DB는 PostgreSQL
 - 로컬 CLI 직접 실행 시 `DATABASE_URL`이 없으면 여전히 `sqlite:///./trading.db`로 fallback 가능
@@ -203,6 +204,50 @@ WHERE table_schema = 'public'
 ORDER BY table_name;
 ```
 
+3-1. `order_attempts` 스키마 반영 전후 확인
+
+- 스키마 변경 전에는 `pg_dump -Fc` 형식으로 먼저 백업한다.
+- `order_attempts` 반영 직후에는 아래 항목을 함께 확인한다.
+  - `orders`, `order_attempts` 테이블 존재 여부
+  - `orders` 대비 `order_attempts` 백필 건수
+  - `attempt_no` 시퀀스 무결성
+  - `upbit_identifier`, `upbit_uuid` 중복 여부
+
+대표 확인 쿼리:
+
+```sql
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_name IN ('orders', 'order_attempts')
+ORDER BY table_name;
+```
+
+```sql
+SELECT (SELECT COUNT(*) FROM orders) AS orders_count,
+       (SELECT COUNT(*) FROM order_attempts) AS attempts_count;
+```
+
+```sql
+SELECT
+    order_id,
+    COUNT(*) AS attempt_rows,
+    MAX(attempt_no) AS max_attempt_no
+FROM order_attempts
+GROUP BY order_id
+HAVING COUNT(*) <> MAX(attempt_no)
+ORDER BY order_id;
+```
+
+```sql
+SELECT upbit_identifier, COUNT(*) AS duplicate_count
+FROM order_attempts
+WHERE upbit_identifier IS NOT NULL
+GROUP BY upbit_identifier
+HAVING COUNT(*) > 1
+ORDER BY duplicate_count DESC, upbit_identifier;
+```
+
 4. 초기 bootstrap 이상 징후
 - `qt-ops-api` 또는 `qt-trader`가 시작 직후 종료됨
 - `\dt` 결과가 비어 있음
@@ -224,9 +269,15 @@ docker logs qt-trader --tail 200
 1. 백업
 - 운영 중에도 논리 백업 가능
 - 권장: `pg_dump` 사용
+- 스키마 변경 전에는 가능하면 custom format(`-Fc`) 백업을 남긴다.
 
 ```powershell
 docker exec qt-postgres pg_dump -U trader -d trading > trading-YYYYMMDD-HHMM.sql
+```
+
+```powershell
+docker exec qt-postgres pg_dump -U trader -d trading -Fc -f /tmp/trading-YYYYMMDD-HHMM.dump
+docker cp qt-postgres:/tmp/trading-YYYYMMDD-HHMM.dump .\trading-YYYYMMDD-HHMM.dump
 ```
 
 2. 복원
@@ -264,3 +315,133 @@ Get-Content .\trading-YYYYMMDD-HHMM.sql | docker exec -i qt-postgres psql -U tra
 - `qt-postgres` health 상태
 - 배포 이후 `qt-ops-api`, `qt-trader` 재시작 루프 여부
 - 필요 시 `docker image prune -f` 이후 디스크 사용량 점검
+## 10) duplicate identifier 대응 절차
+
+### 10.1 증상 정의
+
+아래 중 하나가 보이면 `duplicate identifier` 대응 절차를 시작한다.
+
+- trader 로그에 `duplicate identifier`
+- trader 로그에 `이미 등록된 identifier입니다.`
+- `orders.last_error` 또는 `order_attempts.last_error`에 동일 의미 오류가 기록됨
+
+중요:
+
+- 거래소에 이미 접수된 주문일 수 있으므로, 상태 확인 전 재제출하면 안 된다.
+
+### 10.2 최초 확인 순서
+
+1. 최근 trader 로그에서 동일 오류가 단발성인지 반복인지 확인한다.
+2. 현재 open 주문과 `ERROR_NEEDS_REVIEW` 주문이 있는지 확인한다.
+3. 거래소 open order와 로컬 상태가 어긋나는지 확인한다.
+4. 같은 `upbit_identifier`가 다른 attempt에 재사용되었는지 확인한다.
+
+### 10.3 로그 확인
+
+호스트 또는 로그 파일 기준:
+
+```powershell
+docker logs qt-trader --tail 200 | Select-String -Pattern "duplicate identifier|이미 등록된 identifier"
+```
+
+로그 파일 기준:
+
+```powershell
+Get-Content -Tail 200 .\application-info.log | Select-String -Pattern "duplicate identifier|이미 등록된 identifier"
+```
+
+같이 보면 좋은 패턴:
+
+- `execution_submit_real_start`
+- `execution_recover_attempt`
+- `execution_recover_success`
+- `scheduler_order_skipped`
+- `reconcile_open_orders_done`
+
+### 10.4 DB 확인 쿼리
+
+현재 수동 검토 필요 주문:
+
+```sql
+SELECT id, market, side, state, error_class, last_error, client_order_id, upbit_identifier, upbit_uuid, updated_at
+FROM orders
+WHERE state = 'ERROR_NEEDS_REVIEW'
+ORDER BY updated_at DESC
+LIMIT 50;
+```
+
+중복 `upbit_identifier` 확인 (`order_attempts` 기준):
+
+```sql
+SELECT upbit_identifier, COUNT(*) AS duplicate_count
+FROM order_attempts
+WHERE upbit_identifier IS NOT NULL
+GROUP BY upbit_identifier
+HAVING COUNT(*) > 1
+ORDER BY duplicate_count DESC, upbit_identifier;
+```
+
+최신 attempt와 `orders` 요약 상태 불일치 확인:
+
+```sql
+WITH latest_attempt AS (
+    SELECT order_id, MAX(attempt_no) AS attempt_no
+    FROM order_attempts
+    GROUP BY order_id
+)
+SELECT
+    o.id,
+    o.client_order_id,
+    o.state AS order_state,
+    a.state AS latest_attempt_state,
+    o.error_class AS order_error_class,
+    a.error_class AS latest_attempt_error_class,
+    o.updated_at
+FROM orders o
+JOIN latest_attempt la ON la.order_id = o.id
+JOIN order_attempts a
+    ON a.order_id = la.order_id
+   AND a.attempt_no = la.attempt_no
+WHERE
+    o.state <> a.state
+    OR COALESCE(o.error_class, '') <> COALESCE(a.error_class, '')
+ORDER BY o.updated_at DESC;
+```
+
+### 10.5 즉시 해도 되는 안전 조치
+
+- 로그와 DB에서 현재 영향 범위를 먼저 확인한다.
+- `TRADE_MODE`를 `SHADOW` 또는 `TEST`로 낮춰 추가 제출을 막는다.
+- 거래소 open order가 실제로 있는지 먼저 확인한다.
+- 같은 `order_id`의 최신 attempt 흐름을 확인한다.
+
+### 10.6 즉시 하면 안 되는 조치
+
+- 상태 확인 전 같은 논리 주문을 바로 재제출
+- 거래소 open 여부 확인 전 강제 취소 또는 강제 종료 가정
+- 같은 `client_order_id` 또는 같은 `upbit_identifier` 재사용
+
+### 10.7 수동 개입이 필요한 경우
+
+아래 중 하나면 개발자 또는 운영 책임자 확인이 필요하다.
+
+- 중복 `upbit_identifier` 쿼리 결과가 1건 이상
+- `ERROR_NEEDS_REVIEW`가 남아 있음
+- 거래소 open order는 있는데 로컬 상태가 닫혀 있음
+- 최신 attempt와 `orders` 요약 상태가 어긋남
+- 동일 오류가 짧은 시간에 반복 발생
+
+### 10.8 개발자 후속 확인 자료
+
+아래 자료를 함께 수집한다.
+
+- 관련 `order_id`
+- 관련 `upbit_identifier`, `upbit_uuid`
+- 최근 trader 로그 100~200줄
+- 해당 주문의 `orders` 행
+- 해당 주문의 `order_attempts` 행
+
+참고 문서:
+
+- `docs/order_attempts_ops_checks_2026-03-04.md`
+- `docs/order_state_consistency_dev_2026-03-04.md`

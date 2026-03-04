@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 import trader.trading.execution as execution_module
 from trader.data.db import Base
-from trader.data.models import Order
+from trader.data.models import Order, OrderAttempt
 from trader.trading.execution import ExecutionEngine
 from trader.trading.order_policy import OrderPolicyConfig
 from trader.trading.paper_execution import PaperExecutionEngine
@@ -262,6 +262,85 @@ def test_reprice_uses_new_upbit_identifier(monkeypatch):
     assert client.create_calls == 2
     assert len(client.submitted_identifiers) == 2
     assert client.submitted_identifiers[0] != client.submitted_identifiers[1]
+    attempts = session.scalars(
+        select(OrderAttempt).where(OrderAttempt.order_id == order.id).order_by(OrderAttempt.attempt_no.asc())
+    ).all()
+    assert len(attempts) == 2
+    assert attempts[0].attempt_no == 1
+    assert attempts[1].attempt_no == 2
+    assert attempts[0].submit_reason == "INITIAL"
+    assert attempts[1].submit_reason == "REPRICE"
+
+
+def test_submit_timeout_after_server_accept_recovers_uuid(monkeypatch):
+    session = _session()
+    client = FakeUpbitClient()
+    engine = ExecutionEngine(
+        session=session,
+        upbit_client=client,
+        max_submit_retries=2,
+        retry_backoff_seconds=0,
+        trade_mode="REAL",
+    )
+    original_create = client.create_order
+
+    def create_then_timeout(*args, identifier=None, **kwargs):
+        original_create(*args, identifier=identifier, **kwargs)
+        req = httpx.Request("POST", "https://api.upbit.com/v1/orders")
+        raise httpx.TimeoutException("timeout-after-submit", request=req)
+
+    monkeypatch.setattr(client, "create_order", create_then_timeout)
+
+    order = engine.place_target_order(
+        market="KRW-BTC",
+        current_qty=Decimal("0"),
+        target_qty=Decimal("1"),
+        ref_price=Decimal("10000"),
+        idempotency_key="recover-after-submit",
+    )
+
+    assert order is not None
+    attempts = session.scalars(
+        select(OrderAttempt).where(OrderAttempt.order_id == order.id).order_by(OrderAttempt.attempt_no.asc())
+    ).all()
+    assert len(attempts) == 1
+    assert attempts[0].upbit_uuid is not None
+    assert attempts[0].error_class is None
+
+
+def test_submit_timeout_before_server_accept_moves_to_review(monkeypatch):
+    session = _session()
+    client = FakeUpbitClient()
+    engine = ExecutionEngine(
+        session=session,
+        upbit_client=client,
+        max_submit_retries=1,
+        retry_backoff_seconds=0,
+        trade_mode="REAL",
+    )
+
+    def timeout_without_server_accept(*args, **kwargs):
+        req = httpx.Request("POST", "https://api.upbit.com/v1/orders")
+        raise httpx.TimeoutException("timeout-before-submit", request=req)
+
+    monkeypatch.setattr(client, "create_order", timeout_without_server_accept)
+
+    order = engine.place_target_order(
+        market="KRW-BTC",
+        current_qty=Decimal("0"),
+        target_qty=Decimal("1"),
+        ref_price=Decimal("10000"),
+        idempotency_key="recover-fails",
+    )
+
+    assert order is not None
+    assert order.state == "ERROR_NEEDS_REVIEW"
+    attempts = session.scalars(
+        select(OrderAttempt).where(OrderAttempt.order_id == order.id).order_by(OrderAttempt.attempt_no.asc())
+    ).all()
+    assert len(attempts) == 1
+    assert attempts[0].upbit_uuid is None
+    assert attempts[0].state == "ERROR_NEEDS_REVIEW"
 
 
 def test_paper_execution_updates_wallet_and_position_once():

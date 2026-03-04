@@ -98,8 +98,39 @@ class Order(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
+    attempts: Mapped[list["OrderAttempt"]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+    )
     fills: Mapped[list[Fill]] = relationship(back_populates="order")
     trade_metrics: Mapped[list[TradeMetric]] = relationship(back_populates="order")
+
+
+class OrderAttempt(Base):
+    """Individual exchange submission and recovery attempts for a logical order."""
+
+    __tablename__ = "order_attempts"
+    __table_args__ = (
+        UniqueConstraint("order_id", "attempt_no", name="uq_order_attempt_order_attempt_no"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True)
+    attempt_no: Mapped[int] = mapped_column(Integer)
+    submit_reason: Mapped[str] = mapped_column(String(16), default="INITIAL")
+    requested_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
+    requested_volume: Mapped[Optional[Decimal]] = mapped_column(Numeric(24, 8), nullable=True)
+    upbit_identifier: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    upbit_uuid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    state: Mapped[str] = mapped_column(String(16), default="NEW", index=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_class: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    exchange_response_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+    order: Mapped[Order] = relationship(back_populates="attempts")
 
 
 class Fill(Base):

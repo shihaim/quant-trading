@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from trader.data.db import Base
-from trader.data.models import Fill, Order, TradeMetric
+from trader.data.models import Fill, Order, OrderAttempt, TradeMetric
 from trader.migration.contracts import MigrationOptions
 from trader.migration.merge import MigrationService
 
@@ -228,6 +228,105 @@ def test_trade_metric_conflict_warns_when_target_is_newer(tmp_path):
         assert metric is not None
         assert metric.created_at.replace(tzinfo=timezone.utc) == target_created_at
         assert metric.filled_vwap_price == 10020
+
+    source_engine.dispose()
+    target_engine.dispose()
+
+
+def test_order_attempts_merge_updates_existing_attempt_when_source_is_newer(tmp_path):
+    source_url, source_engine, SourceSession = _session_factory(tmp_path / "source-attempts.db")
+    target_url, target_engine, TargetSession = _session_factory(tmp_path / "target-attempts.db")
+    source_updated_at = datetime(2026, 3, 1, 0, 10, tzinfo=timezone.utc)
+    target_updated_at = source_updated_at - timedelta(minutes=5)
+
+    with SourceSession() as session:
+        source_order = Order(
+            market="KRW-BTC",
+            side="bid",
+            ord_type="limit",
+            requested_price=10000,
+            requested_volume=1,
+            client_order_id="shared-order",
+            state="WAIT",
+        )
+        session.add(source_order)
+        session.flush()
+        session.add(
+            OrderAttempt(
+                order_id=source_order.id,
+                attempt_no=1,
+                submit_reason="INITIAL",
+                requested_price=10000,
+                requested_volume=1,
+                upbit_identifier="source-attempt-1",
+                upbit_uuid="source-uuid-1",
+                state="ERROR_NEEDS_REVIEW",
+                retry_count=1,
+                error_class="NETWORK_TIMEOUT",
+                last_error="timed out",
+                updated_at=source_updated_at,
+            )
+        )
+        session.commit()
+
+    with TargetSession() as session:
+        target_order = Order(
+            market="KRW-BTC",
+            side="bid",
+            ord_type="limit",
+            requested_price=10000,
+            requested_volume=1,
+            client_order_id="shared-order",
+            state="WAIT",
+        )
+        session.add(target_order)
+        session.flush()
+        session.add(
+            OrderAttempt(
+                order_id=target_order.id,
+                attempt_no=1,
+                submit_reason="INITIAL",
+                requested_price=10000,
+                requested_volume=1,
+                upbit_identifier="target-attempt-1",
+                upbit_uuid="target-uuid-1",
+                state="WAIT",
+                retry_count=0,
+                error_class=None,
+                last_error=None,
+                updated_at=target_updated_at,
+            )
+        )
+        session.commit()
+
+    summary = MigrationService().run(
+        MigrationOptions(
+            source_url=source_url,
+            target_url=target_url,
+            tables=("orders", "order_attempts"),
+            bootstrap_target=False,
+        )
+    )
+
+    stats_by_name = {stats.table_name: stats for stats in summary.table_stats}
+    assert stats_by_name["orders"].skipped == 1
+    assert stats_by_name["order_attempts"].updated == 1
+
+    with TargetSession() as session:
+        target_order = session.scalar(select(Order).where(Order.client_order_id == "shared-order"))
+        assert target_order is not None
+        attempt = session.scalar(
+            select(OrderAttempt).where(
+                OrderAttempt.order_id == target_order.id,
+                OrderAttempt.attempt_no == 1,
+            )
+        )
+        assert attempt is not None
+        assert attempt.state == "ERROR_NEEDS_REVIEW"
+        assert attempt.error_class == "NETWORK_TIMEOUT"
+        assert attempt.last_error == "timed out"
+        assert attempt.retry_count == 1
+        assert attempt.upbit_identifier == "source-attempt-1"
 
     source_engine.dispose()
     target_engine.dispose()

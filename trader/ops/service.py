@@ -5,7 +5,7 @@ from decimal import Decimal
 from math import ceil
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from trader.config.config_repo import ConfigRepo, RuntimeConfig
 from trader.data.models import BotConfig, DailyEquity, Order, TradeMetric
@@ -62,7 +62,12 @@ class OpsService:
         }
 
     def list_orders(self, state: str | None = None, limit: int = 50) -> dict:
-        q = select(Order).order_by(Order.updated_at.desc()).limit(max(1, min(500, limit)))
+        q = (
+            select(Order)
+            .options(selectinload(Order.attempts))
+            .order_by(Order.updated_at.desc())
+            .limit(max(1, min(500, limit)))
+        )
         if state:
             q = q.where(Order.state == state)
         rows = self.session.execute(q).scalars().all()
@@ -225,6 +230,7 @@ class OpsService:
         needs_review = (
             self.session.execute(
                 select(Order)
+                .options(selectinload(Order.attempts))
                 .where(Order.state == REVIEW_STATE)
                 .order_by(Order.updated_at.desc())
                 .limit(max(1, min(100, needs_review_limit)))
@@ -336,4 +342,3 @@ class OpsService:
         if not candidates:
             return None
         return max(candidates)
-

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from trader.data.models import Order, TradeMetric
+from trader.data.models import Order, OrderAttempt, TradeMetric
 
 KST = timezone(timedelta(hours=9))
 
@@ -40,20 +40,35 @@ def to_float(value: Decimal | float | int | None) -> float:
     return float(to_decimal(value))
 
 
+def latest_attempt(row: Order) -> OrderAttempt | None:
+    if not getattr(row, "attempts", None):
+        return None
+    return max(row.attempts, key=lambda item: item.attempt_no)
+
+
 def to_order_item(row: Order) -> dict:
+    attempt = latest_attempt(row)
+    updated_at = attempt.updated_at if attempt is not None else row.updated_at
+    state = attempt.state if attempt is not None else row.state
+    error_class = attempt.error_class if attempt is not None else row.error_class
+    last_error = attempt.last_error if attempt is not None else row.last_error
+    upbit_identifier = attempt.upbit_identifier if attempt is not None else row.upbit_identifier
+    upbit_uuid = attempt.upbit_uuid if attempt is not None else row.upbit_uuid
     return {
         "id": row.id,
-        "updated_at_utc": iso_utc(row.updated_at),
-        "updated_at_kst": iso_kst(row.updated_at),
+        "updated_at_utc": iso_utc(updated_at),
+        "updated_at_kst": iso_kst(updated_at),
         "market": row.market,
         "side": row.side,
         "intent": row.intent,
-        "state": row.state,
-        "error_class": row.error_class,
-        "last_error": row.last_error,
+        "state": state,
+        "error_class": error_class,
+        "last_error": last_error,
         "client_order_id": row.client_order_id,
-        "upbit_identifier": row.upbit_identifier,
-        "upbit_uuid": row.upbit_uuid,
+        "upbit_identifier": upbit_identifier,
+        "upbit_uuid": upbit_uuid,
+        "attempt_no": attempt.attempt_no if attempt is not None else None,
+        "attempt_submit_reason": attempt.submit_reason if attempt is not None else None,
     }
 
 
@@ -90,4 +105,3 @@ def to_trade_metric_summary_item(metric: TradeMetric, market: str | None, side: 
         "time_to_fill_ms": metric.time_to_fill_ms,
         "partial_fill_count": metric.partial_fill_count,
     }
-
