@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
     ops_api_allow_origin: str = Field(default="*", alias="OPS_API_ALLOW_ORIGIN")
+    ops_api_auth_secret: str = Field(default="dev-ops-auth-secret-change-me", alias="OPS_API_AUTH_SECRET")
+    ops_api_auth_token_ttl_seconds: int = Field(default=43200, alias="OPS_API_AUTH_TOKEN_TTL_SECONDS")
+    ops_api_credentials_encryption_key: str = Field(
+        default="dev-ops-credentials-encryption-key-change-me",
+        alias="OPS_API_CREDENTIALS_ENCRYPTION_KEY",
+    )
 
     model_config = SettingsConfigDict(
         env_file=Path(".env"),

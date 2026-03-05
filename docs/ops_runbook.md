@@ -445,3 +445,31 @@ ORDER BY o.updated_at DESC;
 
 - `docs/order_attempts_ops_checks_2026-03-04.md`
 - `docs/order_state_consistency_dev_2026-03-04.md`
+
+## 11) V2 Foundation Update (2026-03-05)
+
+This runbook originally focused on pre-V2 and order-attempt rollout operations.
+After the V2 foundation completion, use the following additional references and checks:
+
+- New handover doc: `docs/v2_foundation_handover_2026-03-05.md`
+- New authenticated endpoints:
+  - `POST /api/auth/signup`
+  - `POST /api/auth/login`
+  - `GET /api/me`
+  - `GET /api/me/credentials/upbit`
+  - `POST /api/me/credentials/upbit`
+  - `GET /api/me/orders`
+  - `GET /api/me/pnl/daily`
+  - `GET /api/me/metrics/trade`
+
+Operational note for current transition period:
+
+- `/api/me/*` read endpoints run in `legacy_single_bot_owner_bridge` mode.
+- Non-owner authenticated users can receive `403 no_data_scope` by design.
+- Missing/invalid user credential setup returns `403 credentials_required` or `403 credentials_invalid`.
+
+Additional env keys now required for secure runtime behavior:
+
+- `OPS_API_AUTH_SECRET`
+- `OPS_API_AUTH_TOKEN_TTL_SECONDS`
+- `OPS_API_CREDENTIALS_ENCRYPTION_KEY`

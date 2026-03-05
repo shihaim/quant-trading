@@ -27,6 +27,8 @@ def _is_sqlite_bind(bind) -> bool:
     return bind.dialect.name == "sqlite"
 
 TABLE_DOCS_EN = {
+    "users": "Authenticated user identities for V2 API access.",
+    "user_exchange_credentials": "Per-user exchange API credentials encrypted at rest.",
     "bot_config": "Runtime control and risk configuration (single active row).",
     "timeframe_config": "Executable timeframe rows with enable flags.",
     "candles": "OHLCV candle history by market and timeframe.",
@@ -40,6 +42,26 @@ TABLE_DOCS_EN = {
 }
 
 COLUMN_DOCS_EN = {
+    "users": {
+        "id": "Primary key.",
+        "email": "Unique canonical login email (lowercase).",
+        "password_hash": "PBKDF2 password hash string.",
+        "display_name": "Optional profile display name.",
+        "is_active": "Whether login is allowed for this user.",
+        "created_at": "Creation timestamp.",
+        "updated_at": "Last update timestamp.",
+    },
+    "user_exchange_credentials": {
+        "id": "Primary key.",
+        "user_id": "Foreign key to users.id.",
+        "exchange": "Exchange key (currently UPBIT).",
+        "access_key_encrypted": "Encrypted exchange access key value.",
+        "secret_key_encrypted": "Encrypted exchange secret key value.",
+        "access_key_masked": "Masked access key preview for UI status.",
+        "access_key_fingerprint": "SHA-256 fingerprint of the raw access key.",
+        "created_at": "Creation timestamp.",
+        "updated_at": "Last update timestamp.",
+    },
     "bot_config": {
         "id": "Primary key. Normally 1.",
         "is_enabled": "Global bot on/off switch.",
@@ -168,6 +190,8 @@ COLUMN_DOCS_EN = {
 }
 
 TABLE_DOCS_KO = {
+    "users": "V2 API 인증 접근을 위한 사용자 식별 정보.",
+    "user_exchange_credentials": "사용자별 거래소 API 자격증명(저장 시 암호화).",
     "bot_config": "런타임 제어 및 리스크 설정(단일 활성 행).",
     "timeframe_config": "실행 대상 타임프레임과 활성화 상태.",
     "candles": "마켓/타임프레임별 OHLCV 캔들 이력.",
@@ -181,6 +205,26 @@ TABLE_DOCS_KO = {
 }
 
 COLUMN_DOCS_KO = {
+    "users": {
+        "id": "기본 키.",
+        "email": "고유한 정규화 로그인 이메일(소문자).",
+        "password_hash": "PBKDF2 비밀번호 해시 문자열.",
+        "display_name": "선택 사용자 표시 이름.",
+        "is_active": "해당 사용자의 로그인 허용 여부.",
+        "created_at": "생성 시각.",
+        "updated_at": "마지막 수정 시각.",
+    },
+    "user_exchange_credentials": {
+        "id": "기본 키.",
+        "user_id": "users.id 외래 키.",
+        "exchange": "거래소 식별 키(현재 UPBIT).",
+        "access_key_encrypted": "암호화된 거래소 access key 값.",
+        "secret_key_encrypted": "암호화된 거래소 secret key 값.",
+        "access_key_masked": "UI 상태 표시용 마스킹 access key.",
+        "access_key_fingerprint": "원본 access key의 SHA-256 fingerprint.",
+        "created_at": "생성 시각.",
+        "updated_at": "마지막 수정 시각.",
+    },
     "bot_config": {
         "id": "기본 키. 일반적으로 1.",
         "is_enabled": "봇 전역 on/off 스위치.",

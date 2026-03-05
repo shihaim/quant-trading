@@ -29,6 +29,7 @@ trading.db
 *.sqlite3
 *.log
 logs/
+/backups/
 
 # Environment / secrets
 .env

@@ -1,0 +1,8 @@
+# docker-compose.local.override.yml
+services:
+  ops-api:
+    ports:
+      - "18080:8080"
+    networks:
+      - local
+      - data

@@ -33,6 +33,14 @@ python -m trader.app.ops_api --host 127.0.0.1 --port 8080
 
 Available endpoints:
 
+- `POST /api/auth/signup`
+- `POST /api/auth/login`
+- `GET /api/me` (requires `Authorization: Bearer <token>`)
+- `GET /api/me/credentials/upbit` (requires `Authorization: Bearer <token>`)
+- `POST /api/me/credentials/upbit` (requires `Authorization: Bearer <token>`)
+- `GET /api/me/orders?state=ERROR_NEEDS_REVIEW&limit=50` (requires `Authorization: Bearer <token>`)
+- `GET /api/me/pnl/daily?days=30&tz=UTC` (requires `Authorization: Bearer <token>`)
+- `GET /api/me/metrics/trade?limit=200` (requires `Authorization: Bearer <token>`)
 - `GET /api/ops/summary`
 - `GET /api/orders?state=ERROR_NEEDS_REVIEW&limit=50`
 - `GET /api/pnl/daily?days=30&tz=UTC`
@@ -101,6 +109,9 @@ In `REAL/TEST/SHADOW` mode, both keys are required:
 - `TELEGRAM_BOT_TOKEN` (optional)
 - `TELEGRAM_CHAT_ID` (optional)
 - `OPS_API_ALLOW_ORIGIN` (default: `*`, for separated frontend origin)
+- `OPS_API_AUTH_SECRET` (default: `dev-ops-auth-secret-change-me`)
+- `OPS_API_AUTH_TOKEN_TTL_SECONDS` (default: `43200`, 12h)
+- `OPS_API_CREDENTIALS_ENCRYPTION_KEY` (default: `dev-ops-credentials-encryption-key-change-me`)
 - `LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, default: `INFO`)
 - `LOG_DIR` (default: `logs`)
 - `APP_INFO_LOG_FILE` (default: `application-info.log`, scheduler `INFO`/`WARNING`)
