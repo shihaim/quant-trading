@@ -177,6 +177,17 @@ def create_ops_handler(
                     )
                     self._write_json(200, me_service.list_trade_metrics(user=user, limit=limit))
                     return
+                if parsed.path == "/api/me/bot/status":
+                    user = self._require_authenticated_user(session=session)
+                    if user is None:
+                        return
+                    me_service = MeReadService(
+                        session=session,
+                        trade_mode=trade_mode,
+                        encryption_key=settings.ops_api_credentials_encryption_key,
+                    )
+                    self._write_json(200, me_service.get_bot_status(user=user))
+                    return
                 if parsed.path == "/api/ops/summary":
                     metrics_limit = _parse_positive_int(params.get("metrics_limit", [None])[0], fallback=200, max_value=1000)
                     needs_review_limit = _parse_positive_int(
@@ -251,6 +262,28 @@ def create_ops_handler(
                     )
                     self._write_json(200, status)
                     return
+                if parsed.path == "/api/me/bot/start":
+                    user = self._require_authenticated_user(session=session)
+                    if user is None:
+                        return
+                    me_service = MeReadService(
+                        session=session,
+                        trade_mode=trade_mode,
+                        encryption_key=settings.ops_api_credentials_encryption_key,
+                    )
+                    self._write_json(200, me_service.start_bot(user=user))
+                    return
+                if parsed.path == "/api/me/bot/stop":
+                    user = self._require_authenticated_user(session=session)
+                    if user is None:
+                        return
+                    me_service = MeReadService(
+                        session=session,
+                        trade_mode=trade_mode,
+                        encryption_key=settings.ops_api_credentials_encryption_key,
+                    )
+                    self._write_json(200, me_service.stop_bot(user=user))
+                    return
                 if parsed.path == "/api/bot/enable":
                     self._write_json(200, service.set_bot_enabled(enabled=True))
                     return
@@ -266,6 +299,8 @@ def create_ops_handler(
                 self._write_json(401, {"error": exc.code, "message": exc.message})
             except CredentialValidationError as exc:
                 self._write_json(400, {"error": exc.code, "message": exc.message})
+            except UserScopeError as exc:
+                self._write_json(403, {"error": exc.code, "message": exc.message})
             except ValueError as exc:
                 if str(exc) == "invalid_json":
                     self._write_json(400, {"error": "invalid_json", "message": "request body must be valid JSON object"})

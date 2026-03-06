@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+
+import { clearAuthSession, readAccessTokenOrEmpty } from "../lib/auth";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home" },
@@ -14,6 +17,12 @@ const NAV_ITEMS = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [hasToken, setHasToken] = useState(false);
+
+  useEffect(() => {
+    setHasToken(Boolean(readAccessTokenOrEmpty()));
+  }, [pathname]);
 
   return (
     <div className="min-h-screen px-4 py-4 md:px-6">
@@ -39,6 +48,37 @@ export function AppShell({ children }: { children: ReactNode }) {
                   </Link>
                 );
               })}
+              {hasToken ? (
+                <button
+                  className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
+                  onClick={() => {
+                    clearAuthSession();
+                    setHasToken(false);
+                    router.push("/login");
+                  }}
+                >
+                  Logout
+                </button>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className={`rounded-md px-3 py-2 text-sm transition-colors ${
+                      pathname === "/login" ? "bg-ink text-white" : "border border-black/10 bg-white hover:bg-black/5"
+                    }`}
+                  >
+                    Login
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className={`rounded-md px-3 py-2 text-sm transition-colors ${
+                      pathname === "/signup" ? "bg-ink text-white" : "border border-black/10 bg-white hover:bg-black/5"
+                    }`}
+                  >
+                    Sign Up
+                  </Link>
+                </>
+              )}
             </nav>
           </div>
         </div>

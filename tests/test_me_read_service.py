@@ -81,11 +81,19 @@ def test_me_read_service_allows_legacy_owner_user():
     orders = service.list_orders(user=owner, limit=10)
     pnl = service.get_pnl_daily(user=owner, days=7, tz="UTC")
     metrics = service.list_trade_metrics(user=owner, limit=10)
+    status = service.get_bot_status(user=owner)
+    stop_result = service.stop_bot(user=owner)
+    start_result = service.start_bot(user=owner)
 
     assert orders["count"] >= 1
     assert pnl["days"] == 7
     assert metrics["count"] >= 1
     assert orders["scope"]["owner_user_id"] == owner.id
+    assert status["source"] == "/api/me/bot/status"
+    assert stop_result["source"] == "/api/me/bot/stop"
+    assert stop_result["is_enabled"] is False
+    assert start_result["source"] == "/api/me/bot/start"
+    assert start_result["is_enabled"] is True
 
 
 def test_me_read_service_rejects_user_without_scope():
@@ -110,4 +118,7 @@ def test_me_read_service_rejects_user_without_scope():
     service = MeReadService(session=session, trade_mode="PAPER", encryption_key="me-read-key")
     with pytest.raises(UserScopeError, match="no readable data scope"):
         service.list_orders(user=other, limit=10)
-
+    with pytest.raises(UserScopeError, match="no readable data scope"):
+        service.get_bot_status(user=other)
+    with pytest.raises(UserScopeError, match="no readable data scope"):
+        service.start_bot(user=other)

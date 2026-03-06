@@ -30,6 +30,7 @@ trading.db
 *.log
 logs/
 /backups/
+infra/caddy/root.crt
 
 # Environment / secrets
 .env

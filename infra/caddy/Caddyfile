@@ -1,5 +1,10 @@
 qt-dashboard.local {
-  tls internal
+  tls {
+    issuer internal {
+      # 90 days (>= 30 days required)
+      lifetime 2160h
+    }
+  }
   # Optional dashboard protection.
   # basicauth /* {
   #   admin <bcrypt-hash>

@@ -4,7 +4,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from trader.auth.crypto import SecretCryptoError, decrypt_secret
-from trader.data.models import User, UserExchangeCredential
+from trader.data.models import BotConfig, User, UserExchangeCredential
+from trader.ops.dto import iso_kst, iso_utc
 from trader.ops.service import OpsService
 
 
@@ -88,3 +89,33 @@ class MeReadService:
         payload["scope"] = _scope_payload(user=user, owner_user_id=owner_user_id)
         return payload
 
+    def get_bot_status(self, *, user: User) -> dict:
+        self._assert_read_scope(user=user)
+        summary = self.ops_service.get_summary(metrics_limit=1, needs_review_limit=1)
+        config_row = self.session.get(BotConfig, 1)
+        updated_at = config_row.updated_at if config_row is not None else None
+        return {
+            "mode": summary["trade_mode"],
+            "status": summary["bot"]["status"],
+            "is_enabled": bool(summary["bot"]["is_enabled"]),
+            "daily_loss_basis": summary["config"]["daily_loss_basis"],
+            "max_daily_loss_pct": summary["config"]["max_daily_loss_pct"],
+            "target_exposure_pct": summary["config"]["target_exposure_pct"],
+            "max_total_exposure_pct": summary["config"]["max_total_exposure_pct"],
+            "max_per_market_exposure_pct": summary["config"]["max_per_market_exposure_pct"],
+            "updated_at_utc": iso_utc(updated_at),
+            "updated_at_kst": iso_kst(updated_at),
+            "source": "/api/me/bot/status",
+        }
+
+    def start_bot(self, *, user: User) -> dict:
+        self._assert_read_scope(user=user)
+        payload = self.ops_service.set_bot_enabled(enabled=True)
+        payload["source"] = "/api/me/bot/start"
+        return payload
+
+    def stop_bot(self, *, user: User) -> dict:
+        self._assert_read_scope(user=user)
+        payload = self.ops_service.set_bot_enabled(enabled=False)
+        payload["source"] = "/api/me/bot/stop"
+        return payload

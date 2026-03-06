@@ -1,8 +1,8 @@
-# Quant Trading MVP
+﻿# Quant Trading MVP
 
-[한국어 문서](./README.ko.md)
+[Korean README](./README.ko.md)
 
-Upbit spot trading MVP that focuses on safety first:
+Upbit spot trading MVP focused on safety-first operations:
 
 - single-service architecture
 - bar-close trigger with dynamic timeframe reload
@@ -33,14 +33,31 @@ python -m trader.app.ops_api --host 127.0.0.1 --port 8080
 
 Available endpoints:
 
+Auth and identity:
+
 - `POST /api/auth/signup`
 - `POST /api/auth/login`
 - `GET /api/me` (requires `Authorization: Bearer <token>`)
+
+User credential path:
+
 - `GET /api/me/credentials/upbit` (requires `Authorization: Bearer <token>`)
 - `POST /api/me/credentials/upbit` (requires `Authorization: Bearer <token>`)
+
+User-scoped reads:
+
 - `GET /api/me/orders?state=ERROR_NEEDS_REVIEW&limit=50` (requires `Authorization: Bearer <token>`)
 - `GET /api/me/pnl/daily?days=30&tz=UTC` (requires `Authorization: Bearer <token>`)
 - `GET /api/me/metrics/trade?limit=200` (requires `Authorization: Bearer <token>`)
+
+User-scoped bot control:
+
+- `GET /api/me/bot/status` (requires `Authorization: Bearer <token>`)
+- `POST /api/me/bot/start` (requires `Authorization: Bearer <token>`)
+- `POST /api/me/bot/stop` (requires `Authorization: Bearer <token>`)
+
+Legacy ops compatibility paths:
+
 - `GET /api/ops/summary`
 - `GET /api/orders?state=ERROR_NEEDS_REVIEW&limit=50`
 - `GET /api/pnl/daily?days=30&tz=UTC`
@@ -76,10 +93,24 @@ For Compose/Caddy deployment, open:
 - add a local hosts entry for `qt-dashboard.local` pointing to `127.0.0.1`
 - leave `NEXT_PUBLIC_API_BASE_URL` empty to use same-origin `/api/*` routing through Caddy
 - trust the Caddy local CA on your host OS if your browser warns about the certificate
+- Caddy internal cert lifetime is configured in `infra/caddy/Caddyfile` as `2160h` (90 days)
+
+On Windows (run PowerShell as Administrator), trust the local CA used by Caddy:
+
+```powershell
+docker cp qt-caddy:/data/caddy/pki/authorities/local/root.crt .\infra\caddy\root.crt
+certutil -addstore -f Root .\infra\caddy\root.crt
+```
+
+Then restart Caddy and your browser:
+
+```powershell
+docker compose up -d --force-recreate caddy
+```
 
 ## Modes
 
-- `TRADE_MODE=PAPER` (default): no live order, simulated fill in DB
+- `TRADE_MODE=PAPER` (default): no live order, simulated fills in DB
 - `TRADE_MODE=REAL`: live Upbit order mode
 - `TRADE_MODE=TEST`: calls `/v1/orders/test` only (no live order)
 - `TRADE_MODE=SHADOW`: records validated order intent only (no exchange submit)
@@ -104,11 +135,11 @@ In `REAL/TEST/SHADOW` mode, both keys are required:
 - `DEFAULT_FEE_RATE` (default: `0.0005`)
 - `PAPER_INITIAL_CASH_KRW` (default: `1000000`)
 - `ENFORCE_MARKET_ALLOWLIST` (`true/false`, default: `false`)
-- `ALLOWLIST_MARKETS` (JSON array, default: `["KRW-BTC"]`)
+- `ALLOWLIST_MARKETS` (JSON array, default: `['KRW-BTC']`)
 - `REHEARSAL_ORDER_NOTIONAL_KRW` (default: `6000`)
 - `TELEGRAM_BOT_TOKEN` (optional)
 - `TELEGRAM_CHAT_ID` (optional)
-- `OPS_API_ALLOW_ORIGIN` (default: `*`, for separated frontend origin)
+- `OPS_API_ALLOW_ORIGIN` (default: `*`, separated frontend origin)
 - `OPS_API_AUTH_SECRET` (default: `dev-ops-auth-secret-change-me`)
 - `OPS_API_AUTH_TOKEN_TTL_SECONDS` (default: `43200`, 12h)
 - `OPS_API_CREDENTIALS_ENCRYPTION_KEY` (default: `dev-ops-credentials-encryption-key-change-me`)
@@ -120,7 +151,7 @@ In `REAL/TEST/SHADOW` mode, both keys are required:
 - `OPS_API_ERROR_LOG_FILE` (default: `ops-api-error.log`, Ops API `ERROR`/`CRITICAL`)
 - `LOG_ROTATE_MAX_BYTES` (default: `10485760`, 10MB)
 - `LOG_ROTATE_BACKUP_COUNT` (default: `10`)
-- `WEB_LOG_DIR` (default: `./logs` from `apps/web` process cwd, frontend file logs)
+- `WEB_LOG_DIR` (default: `./logs` from `apps/web` process cwd)
 - `WEB_INFO_LOG_FILE` (default: `web-info.log`, frontend `INFO`/`WARNING`)
 - `WEB_ERROR_LOG_FILE` (default: `web-error.log`, frontend `ERROR`)
 - `WEB_LOG_LEVEL` (default: `LOG_LEVEL` or `INFO`)
@@ -133,19 +164,19 @@ The `bot_config` row with `id=1` is reloaded during runtime:
 
 - `is_enabled`: emergency stop
 - `timeframe`: `1m`, `3m`, `5m`, `15m`, `30m`, `60m`, `240m`, `day`
-- `markets_json`: e.g. `["KRW-BTC","KRW-ETH"]`
-- `target_exposure_pct`: BUY 신호 기본 목표 비중 (예: `0.15`)
+- `markets_json`: for example `['KRW-BTC', 'KRW-ETH']`
+- `target_exposure_pct`: default target exposure ratio on buy signals (example: `0.15`)
 - `daily_loss_basis`: `TOTAL` (default) or `REALIZED_ONLY`
 - `max_daily_loss_pct`
 - `max_total_exposure_pct`
 - `max_per_market_exposure_pct`
 - `min_rebalance_threshold_pct`: skip tiny exposure changes
-- `min_order_krw_buffer`: extra KRW buffer above minimum order notional
+- `min_order_krw_buffer`: extra KRW buffer above minimum notional
 - `fill_timeout_sec_entry`, `fill_timeout_sec_exit`, `fill_timeout_sec_rebalance`
 - `max_reprice_attempts_entry`, `max_reprice_attempts_exit`, `max_reprice_attempts_rebalance`
 - `reprice_step_bps`
 - `slippage_budget_entry_pct`, `slippage_budget_exit_pct`
-- `slippage_budget_breach_halt_count` (0 disables auto-halt)
+- `slippage_budget_breach_halt_count` (`0` disables auto-halt)
 - `status_notify_interval_seconds`
 
 Active timeframe is selected from `timeframe_config`:
@@ -155,12 +186,12 @@ Active timeframe is selected from `timeframe_config`:
 
 ## Reconcile and Execution Safety
 
-- Account reconcile: `/v1/accounts` -> local `positions`
-- Open-order reconcile: `/v1/orders/open` -> local `orders`
-- Local open orders are re-synced with `/v1/order`
-- New fills are inserted once and applied once (`fills.is_applied`)
-- Idempotency: one `client_order_id` per market/timeframe/candle/side
-- Order submit recovery: if submit response is lost, re-query by `identifier`
+- account reconcile: `/v1/accounts` -> local `positions`
+- open-order reconcile: `/v1/orders/open` -> local `orders`
+- local open orders are re-synced with `/v1/order`
+- new fills are inserted once and applied once (`fills.is_applied`)
+- idempotency: one `client_order_id` per market/timeframe/candle/side
+- submit recovery: if submit response is lost, re-query by `identifier`
 
 ## Backtest
 
@@ -192,9 +223,9 @@ python -m trader.app.p1_rehearsal --scenario order-cancel --market KRW-BTC --dis
 
 Notes:
 
-- `order-cancel` is intended for `TRADE_MODE=REAL` with ultra-small controlled setup.
-- enable `ENFORCE_MARKET_ALLOWLIST=true` to hard-block non-allowlist markets.
-- when switching runtime timeframe from `15m` to `5m`, consider `MIN_STRATEGY_CANDLES=360` to keep a similar lookback horizon.
+- `order-cancel` is intended for `TRADE_MODE=REAL` with ultra-small controlled setup
+- enable `ENFORCE_MARKET_ALLOWLIST=true` to hard-block non-allowlist markets
+- when switching runtime timeframe from `15m` to `5m`, consider `MIN_STRATEGY_CANDLES=360` to keep a similar lookback horizon
 
 ## P2 Policy
 
@@ -202,8 +233,8 @@ Notes:
 
 ## P3 Execution Policy
 
-- `OrderPolicy` intent: `ENTRY`, `EXIT`, `REBALANCE`
-- tiny rebalance gate and order-notional buffer run before order submit
+- `OrderPolicy` intents: `ENTRY`, `EXIT`, `REBALANCE`
+- tiny rebalance gate and order-notional buffer run before submit
 - opposite-side open orders are canceled first (conflict policy Option A)
 - fill quality metrics are stored in `trade_metrics`
-- slippage budget breaches trigger alert, and optional auto-halt
+- slippage budget breaches trigger alerts and optional auto-halt

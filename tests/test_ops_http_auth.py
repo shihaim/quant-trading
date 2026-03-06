@@ -104,6 +104,14 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
         )
         assert status == 403
         assert payload["error"] == "credentials_required"
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/me/bot/status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status == 403
+        assert payload["error"] == "credentials_required"
 
         status, payload = _request_json(
             port=server.server_port,
@@ -212,6 +220,33 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
         assert status == 200
         assert payload["count"] >= 1
         assert payload["scope"]["owner_user_id"] == 1
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/me/bot/status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status == 200
+        assert payload["source"] == "/api/me/bot/status"
+        assert payload["is_enabled"] is True
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/me/bot/stop",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status == 200
+        assert payload["source"] == "/api/me/bot/stop"
+        assert payload["is_enabled"] is False
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/me/bot/start",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status == 200
+        assert payload["source"] == "/api/me/bot/start"
+        assert payload["is_enabled"] is True
 
         status, _ = _request_json(
             port=server.server_port,
@@ -261,6 +296,22 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
             port=server.server_port,
             method="GET",
             path="/api/me/orders",
+            headers={"Authorization": f"Bearer {token2}"},
+        )
+        assert status == 403
+        assert payload["error"] == "no_data_scope"
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/me/bot/status",
+            headers={"Authorization": f"Bearer {token2}"},
+        )
+        assert status == 403
+        assert payload["error"] == "no_data_scope"
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/me/bot/start",
             headers={"Authorization": f"Bearer {token2}"},
         )
         assert status == 403
