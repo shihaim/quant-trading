@@ -16,6 +16,16 @@
 9. Share only key error lines/stack excerpts instead of full build logs.
 10. Default to summary-first; expand only when explicitly requested.
 
+## Context Anchor Hook
+
+- For tasks that touch trading behavior or invariants, choose the anchor first:
+- If the task is about V3 transition, multi-user scoping, owner-bridge removal, or runtime ownership migration, read `docs/context_anchor_v3_transition.md` first.
+- Otherwise, read `docs/context_anchor.md` first.
+- Trigger this hook when the task involves any of: scheduler flow, order execution, reconcile, fills, PnL, risk limits, runtime config, or Ops API behavior.
+- Read the selected anchor with partial reads first (for example `-TotalCount`, `-First`, `-Tail`), then open only the relevant code files.
+- Before patching, state which invariant(s) from the selected anchor must remain true.
+- Skip this hook for purely presentational frontend changes in `apps/web` or docs-only wording updates with no behavior change.
+
 ## Commit Message Requests
 
 - If the user asks for a commit message, read `.github/commit-message.instructions.md` first and follow it before drafting the message.
