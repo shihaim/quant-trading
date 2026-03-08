@@ -100,6 +100,7 @@ export interface OpsSummary {
 export interface AuthUserIdentity {
   id: number;
   email: string;
+  is_admin: boolean;
   display_name: string | null;
   is_active: boolean;
   created_at_utc: string | null;
@@ -205,6 +206,7 @@ export interface MeBotStatusResponse {
 
 export interface MeBotMutateResponse {
   is_enabled: boolean;
+  status?: string;
   updated_at_utc: string | null;
   updated_at_kst: string | null;
   source: string;

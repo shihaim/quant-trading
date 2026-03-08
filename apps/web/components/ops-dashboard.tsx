@@ -89,11 +89,16 @@ function toHaltThresholdLabel(summary: OpsSummary | null, text: DashboardText, l
   return threshold > 0 ? asPct(threshold, locale) : "-";
 }
 
-export function OpsDashboard() {
+export function OpsDashboard({
+  accessToken,
+  onAuthError,
+}: {
+  accessToken: string;
+  onAuthError?: (error: unknown) => boolean;
+}) {
   const [summary, setSummary] = useState<OpsSummary | null>(null);
   const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isMutating, setIsMutating] = useState<boolean>(false);
   const [pollingMs, setPollingMs] = useState<number>(15000);
   const [locale, setLocale] = useState<LocaleCode>("en");
 
@@ -152,11 +157,17 @@ export function OpsDashboard() {
   const intlLocale = locale === "ko" ? "ko-KR" : "en-US";
 
   const loadSummary = useCallback(async () => {
+    if (!accessToken) {
+      return;
+    }
     try {
-      const data = await opsApi.getSummary();
+      const data = await opsApi.getSummary({ accessToken });
       setSummary(data);
       setError("");
     } catch (requestError) {
+      if (onAuthError?.(requestError)) {
+        return;
+      }
       const errorMessage = toErrorMessage(requestError);
       setError(errorMessage);
       void sendClientLog({
@@ -168,7 +179,7 @@ export function OpsDashboard() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [accessToken, onAuthError]);
 
   useEffect(() => {
     void loadSummary();
@@ -182,42 +193,6 @@ export function OpsDashboard() {
   }, [loadSummary, pollingMs]);
 
   const lossUsage = useMemo(() => normalizeLossUsage(summary), [summary]);
-
-  const onToggle = useCallback(
-    async (enabled: boolean) => {
-      const confirmed = window.confirm(enabled ? text.confirmEnable : text.confirmDisable);
-      if (!confirmed) {
-        return;
-      }
-      setIsMutating(true);
-      try {
-        if (enabled) {
-          await opsApi.enableBot();
-        } else {
-          await opsApi.disableBot();
-        }
-        void sendClientLog({
-          level: "INFO",
-          source: "ops-dashboard.onToggle",
-          message: enabled ? "bot_enable_requested" : "bot_disable_requested",
-          context: { enabled }
-        });
-        await loadSummary();
-      } catch (requestError) {
-        const errorMessage = toErrorMessage(requestError);
-        setError(errorMessage);
-        void sendClientLog({
-          level: "ERROR",
-          source: "ops-dashboard.onToggle",
-          message: errorMessage,
-          context: { enabled }
-        });
-      } finally {
-        setIsMutating(false);
-      }
-    },
-    [loadSummary, text.confirmDisable, text.confirmEnable]
-  );
 
   const botStatusRaw = summary?.bot.status ?? "DISABLED";
   const botStatusLabel = toStatusLabel(botStatusRaw, text);
@@ -270,23 +245,9 @@ export function OpsDashboard() {
           <button
             className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
             onClick={() => void loadSummary()}
-            disabled={isLoading || isMutating}
+            disabled={isLoading}
           >
             {text.refresh}
-          </button>
-          <button
-            className="rounded-md border border-safe/40 bg-white px-3 py-2 text-sm"
-            onClick={() => void onToggle(true)}
-            disabled={isMutating}
-          >
-            {text.enable}
-          </button>
-          <button
-            className="rounded-md border border-danger/50 bg-white px-3 py-2 text-sm"
-            onClick={() => void onToggle(false)}
-            disabled={isMutating}
-          >
-            {text.killSwitch}
           </button>
         </div>
       </header>

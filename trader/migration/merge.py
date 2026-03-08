@@ -167,7 +167,10 @@ class OrdersMigrator(BaseTableMigrator):
                 target_row = None
                 if not target_missing:
                     target_row = context.target_session.scalar(
-                        select(Order).where(Order.client_order_id == source_row.client_order_id)
+                        select(Order).where(
+                            Order.user_id == source_row.user_id,
+                            Order.client_order_id == source_row.client_order_id,
+                        )
                     )
                 if target_row is None:
                     stats.inserted += 1
@@ -534,7 +537,10 @@ class MigrationService:
         for batch in iter_rows_by_id(context.source_session, Order, context.options.batch_size):
             for source_row in batch:
                 target_id = context.target_session.scalar(
-                    select(Order.id).where(Order.client_order_id == source_row.client_order_id)
+                    select(Order.id).where(
+                        Order.user_id == source_row.user_id,
+                        Order.client_order_id == source_row.client_order_id,
+                    )
                 )
                 if target_id is not None:
                     context.order_id_map.remember(source_row.id, target_id)

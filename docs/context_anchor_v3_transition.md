@@ -1,7 +1,7 @@
 ﻿# Quant Trading MVP Context Anchor (V3 Transition Safe)
 
 Last verified: 2026-03-06
-Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `ticket/BATCH_MAP.md`
+Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
 
 ## Quick routing
 

@@ -1,0 +1,79 @@
+networks:
+  public:
+    name: qt_localtest_public
+  local:
+    name: qt_localtest_local
+  private:
+    name: qt_localtest_private
+    internal: true
+  data:
+    name: qt_localtest_data
+    internal: true
+  egress:
+    name: qt_localtest_egress
+
+volumes:
+  pg_data_localtest:
+  ops_api_logs_localtest:
+  trader_logs_localtest:
+  web_client_logs_localtest:
+
+services:
+  postgres:
+    container_name: qt-localtest-postgres
+    ports: !reset []
+    volumes:
+      - pg_data_localtest:/var/lib/postgresql/data
+
+  ops-api:
+    container_name: qt-localtest-ops-api
+    ports:
+      - "28080:8080"
+    networks:
+      - local
+      - data
+    depends_on: !reset []
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite+pysqlite:////var/lib/qt/trading-localtest.db}
+    volumes:
+      - ops_api_logs_localtest:/var/log/qt
+      - ./_localtest_sqlite:/var/lib/qt
+    build:
+      context: .
+      dockerfile: Dockerfile.ops-api
+    image: qt-localtest-ops-api:dev
+
+  trader:
+    container_name: qt-localtest-trader
+    networks:
+      - private
+      - data
+      - egress
+    depends_on: !reset []
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite+pysqlite:////var/lib/qt/trading-localtest.db}
+    volumes:
+      - trader_logs_localtest:/var/log/qt
+      - ./_localtest_sqlite:/var/lib/qt
+    build:
+      context: .
+      dockerfile: Dockerfile.trader
+    image: qt-localtest-trader:dev
+
+  web:
+    container_name: qt-localtest-web
+    ports:
+      - "23000:3000"
+    working_dir: /app/apps/web
+    networks:
+      - private
+      - local
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://127.0.0.1:28080}
+      WEB_LOG_DIR: /var/log/qt
+      NODE_ENV: development
+    volumes:
+      - web_client_logs_localtest:/var/log/qt
+      - ./apps/web:/app/apps/web
+    image: node:20-alpine
+    command: ["sh", "-c", "npm ci && npm run dev -- --hostname 0.0.0.0 --port 3000"]

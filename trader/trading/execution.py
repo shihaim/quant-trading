@@ -54,6 +54,7 @@ class ExecutionEngine:
         target_qty: Decimal,
         ref_price: Decimal,
         idempotency_key: str,
+        user_id: int = 1,
         current_exposure_pct: Decimal | None = None,
         target_exposure_pct: Decimal | None = None,
         policy_config: OrderPolicyConfig | None = None,
@@ -64,24 +65,31 @@ class ExecutionEngine:
         """Create and submit an order to move from current_qty to target_qty."""
         delta = target_qty - current_qty
         logger.info(
-            "execution_place_target_start market=%s current_qty=%s target_qty=%s delta=%s ref_price=%s",
+            "execution_place_target_start user_id=%s market=%s current_qty=%s target_qty=%s delta=%s ref_price=%s",
+            user_id,
             market,
             current_qty,
             target_qty,
             delta,
             ref_price,
         )
+        normalized_user_id = max(1, int(user_id))
         if abs(delta) < Decimal("0.00000001"):
             logger.info("execution_place_target_skip market=%s reason=no_delta", market)
             return None
         if self.allowed_markets and market not in self.allowed_markets:
             order = Order(
+                user_id=normalized_user_id,
                 market=market,
                 side="bid" if delta > 0 else "ask",
                 ord_type="limit",
                 requested_price=ref_price,
                 requested_volume=abs(delta),
-                client_order_id=self._build_client_order_id(idempotency_key=idempotency_key, side="bid" if delta > 0 else "ask"),
+                client_order_id=self._build_client_order_id(
+                    idempotency_key=idempotency_key,
+                    side="bid" if delta > 0 else "ask",
+                    user_id=normalized_user_id,
+                ),
                 state="REJECTED",
                 error_class="VALIDATION_ERROR",
                 last_error=f"market_not_allowlisted:{market}",
@@ -132,11 +140,13 @@ class ExecutionEngine:
             policy.allow_market_fallback,
         )
 
-        self._resolve_open_order_conflict(market=market, new_side=side)
+        self._resolve_open_order_conflict(user_id=normalized_user_id, market=market, new_side=side)
 
-        client_order_id = self._build_client_order_id(idempotency_key=idempotency_key, side=side)
+        client_order_id = self._build_client_order_id(idempotency_key=idempotency_key, side=side, user_id=normalized_user_id)
 
-        existing = self.session.scalar(select(Order).where(Order.client_order_id == client_order_id))
+        existing = self.session.scalar(
+            select(Order).where(Order.user_id == normalized_user_id, Order.client_order_id == client_order_id)
+        )
         if existing:
             logger.info(
                 "execution_place_target_reuse client_order_id=%s market=%s state=%s",
@@ -148,7 +158,7 @@ class ExecutionEngine:
 
         open_order = self.session.scalar(
             select(Order)
-            .where(Order.market == market, Order.side == side, Order.state.in_(LOCAL_OPEN_STATES))
+            .where(Order.user_id == normalized_user_id, Order.market == market, Order.side == side, Order.state.in_(LOCAL_OPEN_STATES))
             .order_by(Order.created_at.desc())
         )
         if open_order:
@@ -162,6 +172,7 @@ class ExecutionEngine:
             return self.sync_order(open_order)
 
         order = Order(
+            user_id=normalized_user_id,
             market=market,
             side=side,
             ord_type="limit",
@@ -305,9 +316,12 @@ class ExecutionEngine:
         )
         return order
 
-    def sync_local_open_orders(self) -> list[Order]:
+    def sync_local_open_orders(self, user_id: int | None = None) -> list[Order]:
         """로컬 OPEN 계열 주문들을 일괄 동기화한다."""
-        rows = self.session.scalars(select(Order).where(Order.state.in_(LOCAL_OPEN_STATES))).all()
+        query = select(Order).where(Order.state.in_(LOCAL_OPEN_STATES))
+        if user_id is not None:
+            query = query.where(Order.user_id == max(1, int(user_id)))
+        rows = self.session.scalars(query).all()
         logger.info("execution_sync_open_orders_start count=%s", len(rows))
         synced: list[Order] = []
         for row in rows:
@@ -347,9 +361,11 @@ class ExecutionEngine:
             self._persist_error(order, exc, default_state=order.state or "ERROR_NEEDS_REVIEW")
             return order
 
-    def cancel_open_orders(self, market: str | None = None, limit: int | None = None) -> list[Order]:
+    def cancel_open_orders(self, market: str | None = None, limit: int | None = None, user_id: int | None = None) -> list[Order]:
         """로컬 OPEN 계열 주문을 조회해 순차 취소한다."""
         query = select(Order).where(Order.state.in_(LOCAL_OPEN_STATES)).order_by(Order.created_at.asc())
+        if user_id is not None:
+            query = query.where(Order.user_id == max(1, int(user_id)))
         if market:
             query = query.where(Order.market == market)
         rows = self.session.scalars(query).all()
@@ -362,10 +378,10 @@ class ExecutionEngine:
         logger.info("execution_cancel_open_orders_done canceled=%s", len(canceled))
         return canceled
 
-    def _resolve_open_order_conflict(self, market: str, new_side: str) -> None:
+    def _resolve_open_order_conflict(self, user_id: int, market: str, new_side: str) -> None:
         rows = self.session.scalars(
             select(Order)
-            .where(Order.market == market, Order.state.in_(LOCAL_OPEN_STATES))
+            .where(Order.user_id == user_id, Order.market == market, Order.state.in_(LOCAL_OPEN_STATES))
             .order_by(Order.created_at.asc())
         ).all()
         conflicts = [row for row in rows if row.side != new_side]
@@ -720,10 +736,10 @@ class ExecutionEngine:
         attempt_row.exchange_response_raw = order.exchange_response_raw
 
     @staticmethod
-    def _build_client_order_id(idempotency_key: str, side: str) -> str:
+    def _build_client_order_id(idempotency_key: str, side: str, user_id: int = 1) -> str:
         """멱등키와 방향을 기반으로 내부 client_order_id를 생성한다."""
         token = "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in idempotency_key).strip("-")
-        return f"{token}-{side}"[:64]
+        return f"u{max(1, int(user_id))}-{token}-{side}"[:64]
 
     @staticmethod
     def _new_upbit_identifier(market: str, side: str) -> str:
@@ -902,10 +918,16 @@ class ExecutionEngine:
         since: datetime,
         entry_budget_pct: Decimal,
         exit_budget_pct: Decimal,
+        user_id: int | None = None,
     ) -> int:
-        rows = self.session.scalars(
-            select(TradeMetric).where(and_(TradeMetric.created_at >= since, TradeMetric.slippage_pct.is_not(None)))
-        ).all()
+        query = (
+            select(TradeMetric)
+            .join(Order, TradeMetric.order_id == Order.id)
+            .where(and_(TradeMetric.created_at >= since, TradeMetric.slippage_pct.is_not(None)))
+        )
+        if user_id is not None:
+            query = query.where(Order.user_id == max(1, int(user_id)))
+        rows = self.session.scalars(query).all()
         count = 0
         for row in rows:
             budget = exit_budget_pct if row.intent == OrderIntent.EXIT.value else entry_budget_pct

@@ -58,18 +58,18 @@ class SnapshotTableSynchronizer:
             source_rows=estimate_row_count(source_session, Position),
             target_rows=0 if target_missing else estimate_row_count(target_session, Position),
         )
-        for source_row in source_session.scalars(select(Position).order_by(Position.market.asc())).all():
-            target_row = None if target_missing else target_session.get(Position, source_row.market)
+        for source_row in source_session.scalars(select(Position).order_by(Position.user_id.asc(), Position.market.asc())).all():
+            target_row = None if target_missing else target_session.get(Position, (source_row.user_id, source_row.market))
             if target_row is None:
                 stats.inserted += 1
                 if not dry_run:
-                    target_row = Position(market=source_row.market)
+                    target_row = Position(user_id=source_row.user_id, market=source_row.market)
                     target_session.add(target_row)
-                    _assign_columns(target_row, source_row, exclude=("market",))
-            elif _rows_differ(target_row, source_row, exclude=("market",)):
+                    _assign_columns(target_row, source_row, exclude=("user_id", "market"))
+            elif _rows_differ(target_row, source_row, exclude=("user_id", "market")):
                 stats.updated += 1
                 if not dry_run:
-                    _assign_columns(target_row, source_row, exclude=("market",))
+                    _assign_columns(target_row, source_row, exclude=("user_id", "market"))
             else:
                 stats.skipped += 1
         if not dry_run:
@@ -82,22 +82,20 @@ class SnapshotTableSynchronizer:
             source_rows=estimate_row_count(source_session, PaperWallet),
             target_rows=0 if target_missing else estimate_row_count(target_session, PaperWallet),
         )
-        source_row = source_session.get(PaperWallet, 1)
-        if source_row is None:
-            return stats
-        target_row = None if target_missing else target_session.get(PaperWallet, 1)
-        if target_row is None:
-            stats.inserted += 1
-            if not dry_run:
-                target_row = PaperWallet(id=1)
-                target_session.add(target_row)
-                _assign_columns(target_row, source_row, exclude=("id",))
-        elif _rows_differ(target_row, source_row, exclude=("id",)):
-            stats.updated += 1
-            if not dry_run:
-                _assign_columns(target_row, source_row, exclude=("id",))
-        else:
-            stats.skipped += 1
+        for source_row in source_session.scalars(select(PaperWallet).order_by(PaperWallet.user_id.asc())).all():
+            target_row = None if target_missing else target_session.get(PaperWallet, source_row.user_id)
+            if target_row is None:
+                stats.inserted += 1
+                if not dry_run:
+                    target_row = PaperWallet(user_id=source_row.user_id)
+                    target_session.add(target_row)
+                    _assign_columns(target_row, source_row, exclude=("user_id",))
+            elif _rows_differ(target_row, source_row, exclude=("user_id",)):
+                stats.updated += 1
+                if not dry_run:
+                    _assign_columns(target_row, source_row, exclude=("user_id",))
+            else:
+                stats.skipped += 1
         if not dry_run:
             target_session.commit()
         return stats
@@ -108,18 +106,18 @@ class SnapshotTableSynchronizer:
             source_rows=estimate_row_count(source_session, DailyEquity),
             target_rows=0 if target_missing else estimate_row_count(target_session, DailyEquity),
         )
-        for source_row in source_session.scalars(select(DailyEquity).order_by(DailyEquity.date_utc.asc())).all():
-            target_row = None if target_missing else target_session.get(DailyEquity, source_row.date_utc)
+        for source_row in source_session.scalars(select(DailyEquity).order_by(DailyEquity.user_id.asc(), DailyEquity.date_utc.asc())).all():
+            target_row = None if target_missing else target_session.get(DailyEquity, (source_row.user_id, source_row.date_utc))
             if target_row is None:
                 stats.inserted += 1
                 if not dry_run:
-                    target_row = DailyEquity(date_utc=source_row.date_utc)
+                    target_row = DailyEquity(user_id=source_row.user_id, date_utc=source_row.date_utc)
                     target_session.add(target_row)
-                    _assign_columns(target_row, source_row, exclude=("date_utc",))
-            elif _rows_differ(target_row, source_row, exclude=("date_utc",)):
+                    _assign_columns(target_row, source_row, exclude=("user_id", "date_utc"))
+            elif _rows_differ(target_row, source_row, exclude=("user_id", "date_utc")):
                 stats.updated += 1
                 if not dry_run:
-                    _assign_columns(target_row, source_row, exclude=("date_utc",))
+                    _assign_columns(target_row, source_row, exclude=("user_id", "date_utc"))
             else:
                 stats.skipped += 1
         if not dry_run:

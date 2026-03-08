@@ -28,7 +28,10 @@ def _is_sqlite_bind(bind) -> bool:
 
 TABLE_DOCS_EN = {
     "users": "Authenticated user identities for V2 API access.",
+    "audit_log": "User and admin action audit trail.",
+    "user_risk_guard": "Per-user risk guard flags (manual halt / emergency kill switch).",
     "user_exchange_credentials": "Per-user exchange API credentials encrypted at rest.",
+    "user_api_budget": "Per-user fixed-window API request budget counters.",
     "bot_config": "Runtime control and risk configuration (single active row).",
     "timeframe_config": "Executable timeframe rows with enable flags.",
     "candles": "OHLCV candle history by market and timeframe.",
@@ -51,14 +54,45 @@ COLUMN_DOCS_EN = {
         "created_at": "Creation timestamp.",
         "updated_at": "Last update timestamp.",
     },
+    "audit_log": {
+        "id": "Primary key.",
+        "actor_user_id": "Actor user id (nullable for system events).",
+        "action": "Normalized audit action code.",
+        "target_type": "Target entity type (credential/runtime/admin/etc).",
+        "target_id": "Target entity identifier as string.",
+        "metadata_json": "JSON-serialized audit metadata payload.",
+        "created_at": "Audit event creation timestamp.",
+    },
+    "user_risk_guard": {
+        "id": "Primary key.",
+        "user_id": "User owner id.",
+        "manual_halt": "Manual halt flag for this user runtime.",
+        "emergency_kill_switch": "Emergency stop flag for this user runtime.",
+        "reason": "Operator-entered halt reason text.",
+        "updated_by_user_id": "Last operator user id who changed the guard.",
+        "created_at": "Creation timestamp.",
+        "updated_at": "Last update timestamp.",
+    },
     "user_exchange_credentials": {
         "id": "Primary key.",
         "user_id": "Foreign key to users.id.",
         "exchange": "Exchange key (currently UPBIT).",
         "access_key_encrypted": "Encrypted exchange access key value.",
         "secret_key_encrypted": "Encrypted exchange secret key value.",
+        "key_version": "Credential key version used for decryption/rotation.",
         "access_key_masked": "Masked access key preview for UI status.",
         "access_key_fingerprint": "SHA-256 fingerprint of the raw access key.",
+        "created_at": "Creation timestamp.",
+        "updated_at": "Last update timestamp.",
+    },
+    "user_api_budget": {
+        "id": "Primary key.",
+        "user_id": "Foreign key to users.id.",
+        "scope": "Budget scope (ME or ADMIN).",
+        "window_started_at": "UTC start timestamp of the active budget window.",
+        "window_seconds": "Window size in seconds.",
+        "request_count": "Accepted request count within the active window.",
+        "blocked_count": "Blocked request count within the active window.",
         "created_at": "Creation timestamp.",
         "updated_at": "Last update timestamp.",
     },
@@ -106,12 +140,13 @@ COLUMN_DOCS_EN = {
     },
     "orders": {
         "id": "Primary key.",
+        "user_id": "Ownership key for user-scoped order records.",
         "market": "Market code.",
         "side": "bid/ask.",
         "ord_type": "Order type (usually limit).",
         "requested_price": "Requested limit price.",
         "requested_volume": "Requested order volume.",
-        "client_order_id": "Local idempotency key.",
+        "client_order_id": "Local idempotency key scoped by user_id.",
         "intent": "ENTRY/EXIT/REBALANCE intent.",
         "upbit_identifier": "Exchange identifier used for recovery query.",
         "upbit_uuid": "Exchange order UUID.",
@@ -183,7 +218,7 @@ COLUMN_DOCS_EN = {
         "updated_at": "Last update timestamp.",
     },
     "paper_wallet": {
-        "id": "Primary key (single row).",
+        "user_id": "Primary key and ownership key (1 row per user).",
         "cash_krw": "Paper wallet KRW cash balance.",
         "updated_at": "Last update timestamp.",
     },
@@ -191,7 +226,10 @@ COLUMN_DOCS_EN = {
 
 TABLE_DOCS_KO = {
     "users": "V2 API 인증 접근을 위한 사용자 식별 정보.",
+    "audit_log": "사용자/관리자 액션 감사 추적 이력.",
+    "user_risk_guard": "사용자별 리스크 가드 플래그(수동 중지/긴급 중지).",
     "user_exchange_credentials": "사용자별 거래소 API 자격증명(저장 시 암호화).",
+    "user_api_budget": "사용자별 고정 윈도우 API 요청 예산 카운터.",
     "bot_config": "런타임 제어 및 리스크 설정(단일 활성 행).",
     "timeframe_config": "실행 대상 타임프레임과 활성화 상태.",
     "candles": "마켓/타임프레임별 OHLCV 캔들 이력.",
@@ -214,14 +252,45 @@ COLUMN_DOCS_KO = {
         "created_at": "생성 시각.",
         "updated_at": "마지막 수정 시각.",
     },
+    "audit_log": {
+        "id": "기본 키.",
+        "actor_user_id": "행위 사용자 ID(시스템 이벤트는 NULL 허용).",
+        "action": "정규화된 감사 액션 코드.",
+        "target_type": "대상 엔터티 유형(credential/runtime/admin 등).",
+        "target_id": "대상 엔터티 식별자(문자열).",
+        "metadata_json": "JSON 직렬화된 감사 메타데이터 페이로드.",
+        "created_at": "감사 이벤트 생성 시각.",
+    },
+    "user_risk_guard": {
+        "id": "기본 키.",
+        "user_id": "소유 사용자 ID.",
+        "manual_halt": "해당 사용자 런타임 수동 중지 플래그.",
+        "emergency_kill_switch": "해당 사용자 런타임 긴급 중지 플래그.",
+        "reason": "운영자 입력 중지 사유 텍스트.",
+        "updated_by_user_id": "마지막 변경 수행 사용자 ID.",
+        "created_at": "생성 시각.",
+        "updated_at": "마지막 수정 시각.",
+    },
     "user_exchange_credentials": {
         "id": "기본 키.",
         "user_id": "users.id 외래 키.",
         "exchange": "거래소 식별 키(현재 UPBIT).",
         "access_key_encrypted": "암호화된 거래소 access key 값.",
         "secret_key_encrypted": "암호화된 거래소 secret key 값.",
+        "key_version": "복호화/로테이션에 사용하는 자격증명 키 버전.",
         "access_key_masked": "UI 상태 표시용 마스킹 access key.",
         "access_key_fingerprint": "원본 access key의 SHA-256 fingerprint.",
+        "created_at": "생성 시각.",
+        "updated_at": "마지막 수정 시각.",
+    },
+    "user_api_budget": {
+        "id": "기본 키.",
+        "user_id": "users.id 외래 키.",
+        "scope": "예산 스코프(ME 또는 ADMIN).",
+        "window_started_at": "현재 예산 윈도우의 UTC 시작 시각.",
+        "window_seconds": "윈도우 길이(초).",
+        "request_count": "현재 윈도우 내 허용된 요청 수.",
+        "blocked_count": "현재 윈도우 내 차단된 요청 수.",
         "created_at": "생성 시각.",
         "updated_at": "마지막 수정 시각.",
     },
@@ -269,12 +338,13 @@ COLUMN_DOCS_KO = {
     },
     "orders": {
         "id": "기본 키.",
+        "user_id": "사용자 스코프 주문 소유 키.",
         "market": "마켓 코드.",
         "side": "매수/매도(bid/ask).",
         "ord_type": "주문 유형(일반적으로 limit).",
         "requested_price": "요청한 지정가 가격.",
         "requested_volume": "요청한 주문 수량.",
-        "client_order_id": "로컬 멱등 키.",
+        "client_order_id": "user_id 스코프 기준 로컬 멱등 키.",
         "intent": "주문 의도(ENTRY/EXIT/REBALANCE).",
         "upbit_identifier": "복구 조회에 사용하는 거래소 식별자.",
         "upbit_uuid": "거래소 주문 UUID.",
@@ -346,7 +416,7 @@ COLUMN_DOCS_KO = {
         "updated_at": "마지막 수정 시각.",
     },
     "paper_wallet": {
-        "id": "기본 키(단일 행).",
+        "user_id": "기본 키이자 소유 키(사용자별 1행).",
         "cash_krw": "페이퍼 지갑 KRW 현금 잔액.",
         "updated_at": "마지막 수정 시각.",
     },
@@ -408,6 +478,7 @@ SQLITE_KST_VIEW_SQL = {
         CREATE VIEW orders_kst AS
         SELECT
             id,
+            user_id,
             market,
             side,
             ord_type,
@@ -425,6 +496,45 @@ SQLITE_KST_VIEW_SQL = {
             datetime(created_at, '+9 hours') AS created_at_kst,
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM orders
+    """,
+    "audit_log_kst": """
+        CREATE VIEW audit_log_kst AS
+        SELECT
+            id,
+            actor_user_id,
+            action,
+            target_type,
+            target_id,
+            metadata_json,
+            datetime(created_at, '+9 hours') AS created_at_kst
+        FROM audit_log
+    """,
+    "user_risk_guard_kst": """
+        CREATE VIEW user_risk_guard_kst AS
+        SELECT
+            id,
+            user_id,
+            manual_halt,
+            emergency_kill_switch,
+            reason,
+            updated_by_user_id,
+            datetime(created_at, '+9 hours') AS created_at_kst,
+            datetime(updated_at, '+9 hours') AS updated_at_kst
+        FROM user_risk_guard
+    """,
+    "user_api_budget_kst": """
+        CREATE VIEW user_api_budget_kst AS
+        SELECT
+            id,
+            user_id,
+            scope,
+            datetime(window_started_at, '+9 hours') AS window_started_at_kst,
+            window_seconds,
+            request_count,
+            blocked_count,
+            datetime(created_at, '+9 hours') AS created_at_kst,
+            datetime(updated_at, '+9 hours') AS updated_at_kst
+        FROM user_api_budget
     """,
     "fills_kst": """
         CREATE VIEW fills_kst AS
@@ -458,6 +568,7 @@ SQLITE_KST_VIEW_SQL = {
     "positions_kst": """
         CREATE VIEW positions_kst AS
         SELECT
+            user_id,
             market,
             qty,
             avg_price,
@@ -469,6 +580,7 @@ SQLITE_KST_VIEW_SQL = {
     "daily_equity_kst": """
         CREATE VIEW daily_equity_kst AS
         SELECT
+            user_id,
             datetime(date_utc || ' 00:00:00', '+9 hours') AS date_kst,
             start_equity,
             start_realized_pnl,
@@ -483,7 +595,7 @@ SQLITE_KST_VIEW_SQL = {
     "paper_wallet_kst": """
         CREATE VIEW paper_wallet_kst AS
         SELECT
-            id,
+            user_id,
             cash_krw,
             datetime(updated_at, '+9 hours') AS updated_at_kst
         FROM paper_wallet
@@ -563,6 +675,7 @@ POSTGRES_KST_VIEW_SQL = {
         CREATE VIEW orders_kst AS
         SELECT
             id,
+            user_id,
             market,
             side,
             ord_type,
@@ -580,6 +693,45 @@ POSTGRES_KST_VIEW_SQL = {
             created_at AT TIME ZONE 'Asia/Seoul' AS created_at_kst,
             updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
         FROM orders
+    """,
+    "audit_log_kst": """
+        CREATE VIEW audit_log_kst AS
+        SELECT
+            id,
+            actor_user_id,
+            action,
+            target_type,
+            target_id,
+            metadata_json,
+            created_at AT TIME ZONE 'Asia/Seoul' AS created_at_kst
+        FROM audit_log
+    """,
+    "user_risk_guard_kst": """
+        CREATE VIEW user_risk_guard_kst AS
+        SELECT
+            id,
+            user_id,
+            manual_halt,
+            emergency_kill_switch,
+            reason,
+            updated_by_user_id,
+            created_at AT TIME ZONE 'Asia/Seoul' AS created_at_kst,
+            updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
+        FROM user_risk_guard
+    """,
+    "user_api_budget_kst": """
+        CREATE VIEW user_api_budget_kst AS
+        SELECT
+            id,
+            user_id,
+            scope,
+            window_started_at AT TIME ZONE 'Asia/Seoul' AS window_started_at_kst,
+            window_seconds,
+            request_count,
+            blocked_count,
+            created_at AT TIME ZONE 'Asia/Seoul' AS created_at_kst,
+            updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
+        FROM user_api_budget
     """,
     "fills_kst": """
         CREATE VIEW fills_kst AS
@@ -613,6 +765,7 @@ POSTGRES_KST_VIEW_SQL = {
     "positions_kst": """
         CREATE VIEW positions_kst AS
         SELECT
+            user_id,
             market,
             qty,
             avg_price,
@@ -624,6 +777,7 @@ POSTGRES_KST_VIEW_SQL = {
     "daily_equity_kst": """
         CREATE VIEW daily_equity_kst AS
         SELECT
+            user_id,
             (date_utc::timestamp + INTERVAL '9 hours') AS date_kst,
             start_equity,
             start_realized_pnl,
@@ -638,7 +792,7 @@ POSTGRES_KST_VIEW_SQL = {
     "paper_wallet_kst": """
         CREATE VIEW paper_wallet_kst AS
         SELECT
-            id,
+            user_id,
             cash_krw,
             updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
         FROM paper_wallet
@@ -669,6 +823,279 @@ def _get_kst_view_sql(bind) -> dict[str, str]:
     return SQLITE_KST_VIEW_SQL
 
 
+def _resolve_legacy_owner_user_id(conn) -> int:
+    inspector = inspect(conn)
+    table_names = set(inspector.get_table_names())
+    owner_user_id = None
+    if "user_exchange_credentials" in table_names:
+        owner_user_id = conn.execute(text("SELECT MIN(user_id) FROM user_exchange_credentials")).scalar_one_or_none()
+    if owner_user_id is None and "users" in table_names:
+        owner_user_id = conn.execute(text("SELECT MIN(id) FROM users")).scalar_one_or_none()
+    return int(owner_user_id or 1)
+
+
+def _ensure_user_scope_column(conn, *, table_name: str, owner_user_id: int) -> None:
+    cols = {col["name"] for col in inspect(conn).get_columns(table_name)}
+    if "user_id" not in cols:
+        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN user_id INTEGER DEFAULT 1"))
+    conn.execute(text(f"UPDATE {table_name} SET user_id = COALESCE(user_id, :owner_user_id)"), {"owner_user_id": owner_user_id})
+
+
+def _pk_columns(conn, table_name: str) -> list[str]:
+    return list((inspect(conn).get_pk_constraint(table_name) or {}).get("constrained_columns") or [])
+
+
+def _pk_matches(conn, table_name: str, expected: tuple[str, ...]) -> bool:
+    actual = _pk_columns(conn, table_name)
+    return len(actual) == len(expected) and set(actual) == set(expected)
+
+
+def _sqlite_rebuild_positions_user_scope(conn, *, owner_user_id: int) -> None:
+    cols = {col["name"] for col in inspect(conn).get_columns("positions")}
+    user_expr = "COALESCE(user_id, :owner_user_id)" if "user_id" in cols else ":owner_user_id"
+    conn.execute(text("ALTER TABLE positions RENAME TO positions_v3_old"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE positions (
+                user_id INTEGER NOT NULL,
+                market VARCHAR(32) NOT NULL,
+                qty NUMERIC(24,8) NOT NULL DEFAULT 0,
+                avg_price NUMERIC(24,8) NOT NULL DEFAULT 0,
+                realized_pnl NUMERIC(24,8) NOT NULL DEFAULT 0,
+                unrealized_pnl NUMERIC(24,8) NOT NULL DEFAULT 0,
+                updated_at DATETIME,
+                PRIMARY KEY (user_id, market),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            f"""
+            INSERT INTO positions (
+                user_id,
+                market,
+                qty,
+                avg_price,
+                realized_pnl,
+                unrealized_pnl,
+                updated_at
+            )
+            SELECT
+                {user_expr},
+                market,
+                COALESCE(qty, 0),
+                COALESCE(avg_price, 0),
+                COALESCE(realized_pnl, 0),
+                COALESCE(unrealized_pnl, 0),
+                updated_at
+            FROM positions_v3_old
+            """
+        ),
+        {"owner_user_id": owner_user_id},
+    )
+    conn.execute(text("DROP TABLE positions_v3_old"))
+
+
+def _sqlite_rebuild_daily_equity_user_scope(conn, *, owner_user_id: int) -> None:
+    cols = {col["name"] for col in inspect(conn).get_columns("daily_equity")}
+    user_expr = "COALESCE(user_id, :owner_user_id)" if "user_id" in cols else ":owner_user_id"
+    conn.execute(text("ALTER TABLE daily_equity RENAME TO daily_equity_v3_old"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE daily_equity (
+                user_id INTEGER NOT NULL,
+                date_utc DATE NOT NULL,
+                start_equity NUMERIC(28,8) NOT NULL DEFAULT 0,
+                start_realized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
+                last_equity NUMERIC(28,8) NOT NULL DEFAULT 0,
+                realized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
+                unrealized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
+                daily_pnl_abs NUMERIC(28,8) NOT NULL DEFAULT 0,
+                daily_pnl_pct NUMERIC(28,8) NOT NULL DEFAULT 0,
+                updated_at DATETIME,
+                PRIMARY KEY (user_id, date_utc),
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            f"""
+            INSERT INTO daily_equity (
+                user_id,
+                date_utc,
+                start_equity,
+                start_realized_pnl,
+                last_equity,
+                realized_pnl,
+                unrealized_pnl,
+                daily_pnl_abs,
+                daily_pnl_pct,
+                updated_at
+            )
+            SELECT
+                {user_expr},
+                date_utc,
+                COALESCE(start_equity, 0),
+                COALESCE(start_realized_pnl, COALESCE(realized_pnl, 0)),
+                COALESCE(last_equity, 0),
+                COALESCE(realized_pnl, 0),
+                COALESCE(unrealized_pnl, 0),
+                COALESCE(daily_pnl_abs, 0),
+                COALESCE(daily_pnl_pct, 0),
+                updated_at
+            FROM daily_equity_v3_old
+            """
+        ),
+        {"owner_user_id": owner_user_id},
+    )
+    conn.execute(text("DROP TABLE daily_equity_v3_old"))
+
+
+def _sqlite_rebuild_paper_wallet_user_scope(conn, *, owner_user_id: int) -> None:
+    cols = {col["name"] for col in inspect(conn).get_columns("paper_wallet")}
+    user_expr = "COALESCE(user_id, :owner_user_id)" if "user_id" in cols else ":owner_user_id"
+    conn.execute(text("ALTER TABLE paper_wallet RENAME TO paper_wallet_v3_old"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE paper_wallet (
+                user_id INTEGER NOT NULL PRIMARY KEY,
+                cash_krw NUMERIC(24,8) NOT NULL DEFAULT 1000000,
+                updated_at DATETIME,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            f"""
+            INSERT OR REPLACE INTO paper_wallet (
+                user_id,
+                cash_krw,
+                updated_at
+            )
+            SELECT
+                {user_expr},
+                COALESCE(cash_krw, 1000000),
+                updated_at
+            FROM paper_wallet_v3_old
+            """
+        ),
+        {"owner_user_id": owner_user_id},
+    )
+    conn.execute(text("DROP TABLE paper_wallet_v3_old"))
+
+
+def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
+    inspector = inspect(conn)
+    table_names = set(inspector.get_table_names())
+    if "user_bot_config" not in table_names:
+        return
+
+    if "bot_config" in table_names:
+        conn.execute(
+            text(
+                """
+                INSERT INTO user_bot_config (
+                    user_id,
+                    is_enabled,
+                    timeframe,
+                    markets_json,
+                    target_exposure_pct,
+                    daily_loss_basis,
+                    min_rebalance_threshold_pct,
+                    min_order_krw_buffer,
+                    fill_timeout_sec_entry,
+                    fill_timeout_sec_exit,
+                    fill_timeout_sec_rebalance,
+                    max_reprice_attempts_entry,
+                    max_reprice_attempts_exit,
+                    max_reprice_attempts_rebalance,
+                    reprice_step_bps,
+                    slippage_budget_entry_pct,
+                    slippage_budget_exit_pct,
+                    slippage_budget_breach_halt_count,
+                    status_notify_interval_seconds,
+                    max_daily_loss_pct,
+                    max_total_exposure_pct,
+                    max_per_market_exposure_pct,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    :owner_user_id,
+                    b.is_enabled,
+                    b.timeframe,
+                    b.markets_json,
+                    b.target_exposure_pct,
+                    b.daily_loss_basis,
+                    b.min_rebalance_threshold_pct,
+                    b.min_order_krw_buffer,
+                    b.fill_timeout_sec_entry,
+                    b.fill_timeout_sec_exit,
+                    b.fill_timeout_sec_rebalance,
+                    b.max_reprice_attempts_entry,
+                    b.max_reprice_attempts_exit,
+                    b.max_reprice_attempts_rebalance,
+                    b.reprice_step_bps,
+                    b.slippage_budget_entry_pct,
+                    b.slippage_budget_exit_pct,
+                    b.slippage_budget_breach_halt_count,
+                    b.status_notify_interval_seconds,
+                    b.max_daily_loss_pct,
+                    b.max_total_exposure_pct,
+                    b.max_per_market_exposure_pct,
+                    COALESCE(b.updated_at, CURRENT_TIMESTAMP),
+                    COALESCE(b.updated_at, CURRENT_TIMESTAMP)
+                FROM bot_config b
+                WHERE b.id = 1
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM user_bot_config ubc
+                      WHERE ubc.user_id = :owner_user_id
+                  )
+                """
+            ),
+            {"owner_user_id": owner_user_id},
+        )
+
+    if "user_bot_runtime" in table_names:
+        conn.execute(
+            text(
+                """
+                INSERT INTO user_bot_runtime (
+                    user_id,
+                    is_enabled,
+                    status,
+                    consecutive_failures,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    :owner_user_id,
+                    COALESCE((SELECT ubc.is_enabled FROM user_bot_config ubc WHERE ubc.user_id = :owner_user_id), 1),
+                    'IDLE',
+                    0,
+                    CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM user_bot_runtime ubr
+                    WHERE ubr.user_id = :owner_user_id
+                )
+                """
+            ),
+            {"owner_user_id": owner_user_id},
+        )
+
+
 def run_lightweight_migrations() -> None:
     """Apply lightweight SQLite migrations without alembic."""
     with engine.begin() as conn:
@@ -677,6 +1104,7 @@ def run_lightweight_migrations() -> None:
 
         inspector = inspect(conn)
         table_names = set(inspector.get_table_names())
+        owner_user_id = _resolve_legacy_owner_user_id(conn)
 
         if "orders" in table_names:
             order_cols = {col["name"] for col in inspector.get_columns("orders")}
@@ -692,11 +1120,97 @@ def run_lightweight_migrations() -> None:
                 conn.execute(text("ALTER TABLE orders ADD COLUMN exchange_response_raw TEXT"))
             if "intent" not in order_cols:
                 conn.execute(text("ALTER TABLE orders ADD COLUMN intent VARCHAR(16)"))
+            if "user_id" not in order_cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN user_id INTEGER DEFAULT 1"))
+            conn.execute(text("UPDATE orders SET user_id = COALESCE(user_id, :owner_user_id)"), {"owner_user_id": owner_user_id})
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_user_id ON orders(user_id)"))
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_user_client_order_id ON orders(user_id, client_order_id)"))
 
         if "fills" in table_names:
             fill_cols = {col["name"] for col in inspector.get_columns("fills")}
             if "is_applied" not in fill_cols:
                 conn.execute(text("ALTER TABLE fills ADD COLUMN is_applied BOOLEAN DEFAULT 0"))
+
+        if "audit_log" not in table_names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE audit_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        actor_user_id INTEGER NULL,
+                        action VARCHAR(64) NOT NULL,
+                        target_type VARCHAR(64) NOT NULL,
+                        target_id VARCHAR(128) NULL,
+                        metadata_json TEXT NOT NULL DEFAULT '{}',
+                        created_at DATETIME,
+                        FOREIGN KEY(actor_user_id) REFERENCES users(id)
+                    )
+                    """
+                )
+            )
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_actor_user_id ON audit_log(actor_user_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_action ON audit_log(action)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_target_type ON audit_log(target_type)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_target_id ON audit_log(target_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_log_created_at ON audit_log(created_at)"))
+
+        if "user_risk_guard" not in table_names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE user_risk_guard (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL UNIQUE,
+                        manual_halt BOOLEAN NOT NULL DEFAULT 0,
+                        emergency_kill_switch BOOLEAN NOT NULL DEFAULT 0,
+                        reason TEXT NULL,
+                        updated_by_user_id INTEGER NULL,
+                        created_at DATETIME,
+                        updated_at DATETIME,
+                        FOREIGN KEY(user_id) REFERENCES users(id),
+                        FOREIGN KEY(updated_by_user_id) REFERENCES users(id)
+                    )
+                    """
+                )
+            )
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_user_risk_guard_user_id ON user_risk_guard(user_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_risk_guard_user_id ON user_risk_guard(user_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_risk_guard_manual_halt ON user_risk_guard(manual_halt)"))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_user_risk_guard_emergency_kill_switch ON user_risk_guard(emergency_kill_switch)")
+        )
+
+        if "user_exchange_credentials" in table_names:
+            credential_cols = {col["name"] for col in inspector.get_columns("user_exchange_credentials")}
+            if "key_version" not in credential_cols:
+                conn.execute(text("ALTER TABLE user_exchange_credentials ADD COLUMN key_version VARCHAR(32) DEFAULT 'v1'"))
+            conn.execute(text("UPDATE user_exchange_credentials SET key_version = 'v1' WHERE key_version IS NULL OR TRIM(key_version) = ''"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_exchange_credentials_key_version ON user_exchange_credentials(key_version)"))
+
+        if "user_api_budget" not in table_names:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE user_api_budget (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        scope VARCHAR(16) NOT NULL,
+                        window_started_at DATETIME,
+                        window_seconds INTEGER NOT NULL DEFAULT 60,
+                        request_count INTEGER NOT NULL DEFAULT 0,
+                        blocked_count INTEGER NOT NULL DEFAULT 0,
+                        created_at DATETIME,
+                        updated_at DATETIME,
+                        FOREIGN KEY(user_id) REFERENCES users(id),
+                        UNIQUE(user_id, scope)
+                    )
+                    """
+                )
+            )
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_user_api_budget_user_scope ON user_api_budget(user_id, scope)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_budget_user_id ON user_api_budget(user_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_budget_scope ON user_api_budget(scope)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_budget_window_started_at ON user_api_budget(window_started_at)"))
 
         if "bot_config" in table_names:
             bot_cols = {col["name"] for col in inspector.get_columns("bot_config")}
@@ -736,7 +1250,6 @@ def run_lightweight_migrations() -> None:
             conn.execute(text("UPDATE bot_config SET slippage_budget_exit_pct = 0.0020 WHERE slippage_budget_exit_pct IS NULL OR slippage_budget_exit_pct < 0"))
             conn.execute(text("UPDATE bot_config SET slippage_budget_breach_halt_count = 0 WHERE slippage_budget_breach_halt_count IS NULL OR slippage_budget_breach_halt_count < 0"))
             conn.execute(text("UPDATE bot_config SET status_notify_interval_seconds = 14400 WHERE status_notify_interval_seconds IS NULL OR status_notify_interval_seconds < 300"))
-
         if "timeframe_config" not in table_names:
             conn.execute(
                 text(
@@ -758,7 +1271,8 @@ def run_lightweight_migrations() -> None:
                 text(
                     """
                     CREATE TABLE daily_equity (
-                        date_utc DATE PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        date_utc DATE NOT NULL,
                         start_equity NUMERIC(28,8) NOT NULL DEFAULT 0,
                         start_realized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
                         last_equity NUMERIC(28,8) NOT NULL DEFAULT 0,
@@ -766,7 +1280,8 @@ def run_lightweight_migrations() -> None:
                         unrealized_pnl NUMERIC(28,8) NOT NULL DEFAULT 0,
                         daily_pnl_abs NUMERIC(28,8) NOT NULL DEFAULT 0,
                         daily_pnl_pct NUMERIC(28,8) NOT NULL DEFAULT 0,
-                        updated_at DATETIME
+                        updated_at DATETIME,
+                        PRIMARY KEY (user_id, date_utc)
                     )
                     """
                 )
@@ -776,6 +1291,11 @@ def run_lightweight_migrations() -> None:
             if "start_realized_pnl" not in daily_cols:
                 conn.execute(text("ALTER TABLE daily_equity ADD COLUMN start_realized_pnl NUMERIC(28,8) DEFAULT 0"))
                 conn.execute(text("UPDATE daily_equity SET start_realized_pnl = COALESCE(realized_pnl, 0) WHERE start_realized_pnl IS NULL"))
+            if not _pk_matches(conn, "daily_equity", ("user_id", "date_utc")):
+                _sqlite_rebuild_daily_equity_user_scope(conn, owner_user_id=owner_user_id)
+            else:
+                _ensure_user_scope_column(conn, table_name="daily_equity", owner_user_id=owner_user_id)
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_equity_user_id ON daily_equity(user_id)"))
 
         if "trade_metrics" not in table_names:
             conn.execute(
@@ -799,6 +1319,28 @@ def run_lightweight_migrations() -> None:
                     """
                 )
             )
+
+        if "positions" in table_names:
+            if not _pk_matches(conn, "positions", ("user_id", "market")):
+                _sqlite_rebuild_positions_user_scope(conn, owner_user_id=owner_user_id)
+            else:
+                _ensure_user_scope_column(conn, table_name="positions", owner_user_id=owner_user_id)
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_positions_user_id ON positions(user_id)"))
+
+        if "paper_wallet" in table_names:
+            if not _pk_matches(conn, "paper_wallet", ("user_id",)):
+                _sqlite_rebuild_paper_wallet_user_scope(conn, owner_user_id=owner_user_id)
+            else:
+                _ensure_user_scope_column(conn, table_name="paper_wallet", owner_user_id=owner_user_id)
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_paper_wallet_user_id ON paper_wallet(user_id)"))
+
+        refreshed_table_names = set(inspect(conn).get_table_names())
+        if "user_bot_config" in refreshed_table_names:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_bot_config_user_id ON user_bot_config(user_id)"))
+        if "user_bot_runtime" in refreshed_table_names:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_bot_runtime_user_id ON user_bot_runtime(user_id)"))
+
+        _seed_user_bot_scope(conn, owner_user_id=owner_user_id)
 
         conn.execute(text("DROP INDEX IF EXISTS ix_trade_metrics_order_id"))
 

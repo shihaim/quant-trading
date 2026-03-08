@@ -5,10 +5,18 @@ import logging
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from trader.data.models import BotConfig, TimeframeConfig
+from trader.data.models import (
+    BotConfig,
+    TimeframeConfig,
+    User,
+    UserBotConfig,
+    UserBotRuntime,
+    UserExchangeCredential,
+    UserRiskGuard,
+)
 from trader.utils.timeframes import SUPPORTED_TIMEFRAMES
 
 logger = logging.getLogger(__name__)
@@ -41,6 +49,31 @@ class RuntimeConfig:
     status_notify_interval_seconds: int = 14400
 
 
+@dataclass(frozen=True)
+class RuntimeState:
+    """Per-user runtime state snapshot."""
+
+    user_id: int
+    is_enabled: bool
+    status: str
+    consecutive_failures: int
+    last_error: str | None
+
+
+@dataclass(frozen=True)
+class RiskGuardState:
+    """Per-user risk guard state snapshot."""
+
+    user_id: int
+    manual_halt: bool
+    emergency_kill_switch: bool
+    reason: str | None
+
+    @property
+    def is_halted(self) -> bool:
+        return bool(self.manual_halt or self.emergency_kill_switch)
+
+
 class ConfigRepo:
     def __init__(self, session: Session):
         self.session = session
@@ -55,6 +88,98 @@ class ConfigRepo:
             self.session.refresh(row)
             logger.info("config_init_created id=%s", row.id)
 
+        cfg = self._build_runtime_config(row)
+        logger.info(
+            "config_loaded enabled=%s timeframe=%s markets=%s target_exposure_pct=%s daily_loss_basis=%s "
+            "min_rebalance_threshold_pct=%s min_order_krw_buffer=%s",
+            cfg.is_enabled,
+            cfg.timeframe,
+            cfg.markets,
+            cfg.target_exposure_pct,
+            cfg.daily_loss_basis,
+            cfg.min_rebalance_threshold_pct,
+            cfg.min_order_krw_buffer,
+        )
+        return cfg
+
+    def load_for_user(self, user_id: int) -> RuntimeConfig:
+        """Load user-scoped runtime config and fallback to global config when missing."""
+        normalized_user_id = max(1, int(user_id))
+        row = self.session.execute(
+            select(UserBotConfig).where(UserBotConfig.user_id == normalized_user_id)
+        ).scalar_one_or_none()
+        if row is None:
+            return self.load()
+        return self._build_runtime_config(row)
+
+    def get_runtime_state(self, user_id: int) -> RuntimeState:
+        row = self._get_or_create_runtime_row(user_id=max(1, int(user_id)))
+        return RuntimeState(
+            user_id=row.user_id,
+            is_enabled=bool(row.is_enabled),
+            status=str(row.status or "IDLE"),
+            consecutive_failures=int(row.consecutive_failures or 0),
+            last_error=row.last_error,
+        )
+
+    def set_runtime_enabled(self, *, user_id: int, enabled: bool) -> RuntimeState:
+        row = self._get_or_create_runtime_row(user_id=max(1, int(user_id)))
+        row.is_enabled = bool(enabled)
+        self.session.commit()
+        self.session.refresh(row)
+        return RuntimeState(
+            user_id=row.user_id,
+            is_enabled=bool(row.is_enabled),
+            status=str(row.status or "IDLE"),
+            consecutive_failures=int(row.consecutive_failures or 0),
+            last_error=row.last_error,
+        )
+
+    def get_risk_guard(self, user_id: int) -> RiskGuardState:
+        row = self._get_or_create_risk_guard_row(user_id=max(1, int(user_id)))
+        return RiskGuardState(
+            user_id=row.user_id,
+            manual_halt=bool(row.manual_halt),
+            emergency_kill_switch=bool(row.emergency_kill_switch),
+            reason=row.reason,
+        )
+
+    def resolve_owner_user_id(self, default: int = 1) -> int:
+        owner_user_id = self.session.scalar(
+            select(func.min(UserExchangeCredential.user_id)).where(UserExchangeCredential.exchange == "UPBIT")
+        )
+        if owner_user_id is not None:
+            return int(owner_user_id)
+        fallback = self.session.scalar(select(func.min(User.id)))
+        if fallback is not None:
+            return int(fallback)
+        return max(1, int(default))
+
+    def _get_or_create_runtime_row(self, *, user_id: int) -> UserBotRuntime:
+        row = self.session.execute(
+            select(UserBotRuntime).where(UserBotRuntime.user_id == user_id)
+        ).scalar_one_or_none()
+        if row is not None:
+            return row
+        row = UserBotRuntime(user_id=user_id)
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return row
+
+    def _get_or_create_risk_guard_row(self, *, user_id: int) -> UserRiskGuard:
+        row = self.session.execute(
+            select(UserRiskGuard).where(UserRiskGuard.user_id == user_id)
+        ).scalar_one_or_none()
+        if row is not None:
+            return row
+        row = UserRiskGuard(user_id=user_id, manual_halt=False, emergency_kill_switch=False)
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return row
+
+    def _build_runtime_config(self, row: BotConfig | UserBotConfig) -> RuntimeConfig:
         active_timeframe = self.session.execute(
             select(TimeframeConfig)
             .where(TimeframeConfig.is_enabled.is_(True))
@@ -64,9 +189,8 @@ class ConfigRepo:
         timeframe = active_timeframe.timeframe if active_timeframe else row.timeframe
         if timeframe not in SUPPORTED_TIMEFRAMES:
             timeframe = "15m"
-
         markets = json.loads(row.markets_json or "[]")
-        cfg = RuntimeConfig(
+        return RuntimeConfig(
             is_enabled=bool(row.is_enabled),
             timeframe=timeframe,
             markets=markets,
@@ -140,18 +264,6 @@ class ConfigRepo:
                 max_value=86400,
             ),
         )
-        logger.info(
-            "config_loaded enabled=%s timeframe=%s markets=%s target_exposure_pct=%s daily_loss_basis=%s "
-            "min_rebalance_threshold_pct=%s min_order_krw_buffer=%s",
-            cfg.is_enabled,
-            cfg.timeframe,
-            cfg.markets,
-            cfg.target_exposure_pct,
-            cfg.daily_loss_basis,
-            cfg.min_rebalance_threshold_pct,
-            cfg.min_order_krw_buffer,
-        )
-        return cfg
 
     @staticmethod
     def _sanitize_decimal(

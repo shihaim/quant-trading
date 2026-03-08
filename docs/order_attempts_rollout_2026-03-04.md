@@ -19,7 +19,7 @@
 
 반영 전에 아래 dump를 생성했다.
 
-- 파일: `ticket/2026-03-04/backups/prod_trading_pre_t7_20260304_141652.dump`
+- 파일: `prod_trading_pre_t7_20260304_141652.dump` (환경별 백업 보관 경로 기준)
 - 형식: custom format (`pg_dump -Fc`)
 - 크기: `44,198 bytes`
 

@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from trader.auth.credentials import CredentialValidationError, UserCredentialService
+from trader.auth.credentials import CredentialRotationError, CredentialValidationError, UserCredentialService
 from trader.auth.service import AuthService
 from trader.data.db import Base
 from trader.data.models import UserExchangeCredential
@@ -38,6 +38,7 @@ def test_set_exchange_credentials_encrypts_at_rest_and_returns_status():
     row = session.execute(select(UserExchangeCredential).where(UserExchangeCredential.user_id == user.id)).scalar_one()
     assert row.access_key_encrypted != "access-key-123456"
     assert row.secret_key_encrypted != "secret-key-1234567890"
+    assert row.key_version == "v1"
     assert "access-key-123456" not in row.access_key_encrypted
     assert "secret-key-1234567890" not in row.secret_key_encrypted
 
@@ -74,4 +75,59 @@ def test_set_exchange_credentials_validates_input():
             access_key="access-key-123456",
             secret_key="secret-key-1234567890",
         )
+
+
+def test_key_rotation_reencrypts_rows_and_preserves_plaintext():
+    session = _session()
+    user = AuthService(session).signup(email="rotate@example.com", password="strong-pass-123")
+    base_service = UserCredentialService(
+        session,
+        encryption_key="cred-unit-test-key-v1",
+        active_key_version="v1",
+    )
+    base_service.set_exchange_credentials(
+        user=user,
+        exchange="UPBIT",
+        access_key="access-key-123456",
+        secret_key="secret-key-1234567890",
+    )
+
+    rotating_service = UserCredentialService(
+        session,
+        encryption_key="cred-unit-test-key-v1",
+        active_key_version="v2",
+        keyring={"v1": "cred-unit-test-key-v1", "v2": "cred-unit-test-key-v2"},
+    )
+    result = rotating_service.rotate_exchange_credentials(exchange="UPBIT", target_key_version="v2", dry_run=False)
+
+    assert result["rotated"] == 1
+    assert result["failed"] == 0
+    row = session.execute(select(UserExchangeCredential).where(UserExchangeCredential.user_id == user.id)).scalar_one()
+    assert row.key_version == "v2"
+
+    status = rotating_service.get_exchange_credential_status(user=user, exchange="UPBIT")
+    assert status["is_valid"] is True
+    assert status["key_version"] == "v2"
+    access, secret = rotating_service.get_exchange_credentials_by_user_id(user_id=user.id, exchange="UPBIT")
+    assert access == "access-key-123456"
+    assert secret == "secret-key-1234567890"
+
+
+def test_key_rotation_requires_target_key_configuration():
+    session = _session()
+    user = AuthService(session).signup(email="rotate-missing-key@example.com", password="strong-pass-123")
+    UserCredentialService(session, encryption_key="cred-unit-test-key").set_exchange_credentials(
+        user=user,
+        exchange="UPBIT",
+        access_key="access-key-123456",
+        secret_key="secret-key-1234567890",
+    )
+    service = UserCredentialService(
+        session,
+        encryption_key="cred-unit-test-key",
+        active_key_version="v1",
+        keyring={"v1": "cred-unit-test-key"},
+    )
+    with pytest.raises(CredentialRotationError, match="not configured"):
+        service.rotate_exchange_credentials(exchange="UPBIT", target_key_version="v2", dry_run=False)
 

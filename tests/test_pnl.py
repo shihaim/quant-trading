@@ -105,3 +105,47 @@ def test_resolve_daily_pnl_pct_realized_only_uses_realized_delta():
 
     assert daily_abs == Decimal("-40")
     assert daily_pct == Decimal("-0.004")
+
+
+def test_positions_are_isolated_by_user_for_same_market():
+    session = _session()
+    session.add(Position(user_id=1, market="KRW-BTC", qty=Decimal("2"), avg_price=Decimal("100")))
+    session.add(Position(user_id=2, market="KRW-BTC", qty=Decimal("3"), avg_price=Decimal("200")))
+    session.commit()
+
+    portfolio = PortfolioService(session)
+    user1_total = portfolio.update_unrealized_pnl(mark_prices={"KRW-BTC": Decimal("120")}, user_id=1)
+    user2_total = portfolio.update_unrealized_pnl(mark_prices={"KRW-BTC": Decimal("220")}, user_id=2)
+
+    assert user1_total == Decimal("40")
+    assert user2_total == Decimal("60")
+    row1 = portfolio.get_position("KRW-BTC", user_id=1)
+    row2 = portfolio.get_position("KRW-BTC", user_id=2)
+    assert row1 is not None and row2 is not None
+    assert Decimal(row1.unrealized_pnl) == Decimal("40")
+    assert Decimal(row2.unrealized_pnl) == Decimal("60")
+
+
+def test_daily_snapshot_isolated_by_user_on_same_date():
+    session = _session()
+    pnl = PnLService(session)
+
+    user1 = pnl.update_daily_snapshot(
+        current_equity=Decimal("10000"),
+        realized_pnl=Decimal("10"),
+        unrealized_pnl=Decimal("0"),
+        user_id=1,
+        as_of_date_utc=date(2026, 2, 24),
+    )
+    user2 = pnl.update_daily_snapshot(
+        current_equity=Decimal("20000"),
+        realized_pnl=Decimal("20"),
+        unrealized_pnl=Decimal("0"),
+        user_id=2,
+        as_of_date_utc=date(2026, 2, 24),
+    )
+
+    rows = session.query(DailyEquity).order_by(DailyEquity.user_id.asc(), DailyEquity.date_utc.asc()).all()
+    assert len(rows) == 2
+    assert user1.start_equity == Decimal("10000")
+    assert user2.start_equity == Decimal("20000")

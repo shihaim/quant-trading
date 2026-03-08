@@ -17,6 +17,9 @@ class _RepoStub:
     def load(self) -> RuntimeConfig:
         return self._cfg
 
+    def load_for_user(self, user_id: int) -> RuntimeConfig:
+        return self._cfg
+
 
 class _NotifierStub:
     def __init__(self):
@@ -40,6 +43,7 @@ def _cfg(timeframe: str) -> RuntimeConfig:
 def _scheduler_with(cfg: RuntimeConfig) -> tuple[TradingScheduler, _NotifierStub]:
     scheduler = TradingScheduler.__new__(TradingScheduler)
     scheduler.config_repo = _RepoStub(cfg)
+    scheduler.user_id = 1
     notifier = _NotifierStub()
     scheduler.notifier = notifier
     return scheduler, notifier

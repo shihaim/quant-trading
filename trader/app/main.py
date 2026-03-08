@@ -3,13 +3,13 @@ import logging
 from trader.app.logging_config import configure_file_logging, mask_connection_secret
 from trader.config.settings import settings
 from trader.data.db import SessionLocal, initialize_database
-from trader.trading.scheduler import TradingScheduler
+from trader.trading.scheduler import MultiUserTradingScheduler
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    """Initialize DB and run the trading scheduler loop."""
+    """Initialize DB and run the multi-user trading scheduler loop."""
     configure_file_logging(
         info_env_key="APP_INFO_LOG_FILE",
         error_env_key="APP_ERROR_LOG_FILE",
@@ -24,13 +24,11 @@ def main() -> None:
         settings.config_reload_seconds,
     )
     initialize_database()
-    session = SessionLocal()
+    scheduler = MultiUserTradingScheduler(session_factory=SessionLocal)
     try:
-        scheduler = TradingScheduler(session=session)
         scheduler.run_forever()
     finally:
         logger.info("app_shutdown")
-        session.close()
 
 
 if __name__ == "__main__":

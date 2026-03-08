@@ -37,13 +37,16 @@ class PnLService:
         current_equity: Decimal,
         realized_pnl: Decimal,
         unrealized_pnl: Decimal,
+        user_id: int = 1,
         as_of_date_utc: date | None = None,
     ) -> DailyPnlSnapshot:
+        normalized_user_id = max(1, int(user_id))
         d_utc = as_of_date_utc or datetime.now(timezone.utc).date()
-        row = self.session.get(DailyEquity, d_utc)
+        row = self.session.get(DailyEquity, (normalized_user_id, d_utc))
         created = row is None
         if row is None:
             row = DailyEquity(
+                user_id=normalized_user_id,
                 date_utc=d_utc,
                 start_equity=current_equity,
                 start_realized_pnl=realized_pnl,

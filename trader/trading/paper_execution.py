@@ -22,19 +22,24 @@ class PaperExecutionEngine:
         target_qty: Decimal,
         ref_price: Decimal,
         idempotency_key: str,
+        user_id: int = 1,
         **_: object,
     ) -> Order | None:
         """목표 수량 차이만큼 가상 주문/체결을 즉시 생성한다."""
+        normalized_user_id = max(1, int(user_id))
         delta = target_qty - current_qty
         if abs(delta) < Decimal("0.00000001"):
             return None
         side = "bid" if delta > 0 else "ask"
         volume = abs(delta)
-        client_order_id = self._build_client_order_id(idempotency_key=idempotency_key, side=side)
-        existing = self.session.scalar(select(Order).where(Order.client_order_id == client_order_id))
+        client_order_id = self._build_client_order_id(idempotency_key=idempotency_key, side=side, user_id=normalized_user_id)
+        existing = self.session.scalar(
+            select(Order).where(Order.user_id == normalized_user_id, Order.client_order_id == client_order_id)
+        )
         if existing:
             return existing
         order = Order(
+            user_id=normalized_user_id,
             market=market,
             side=side,
             ord_type="limit",
@@ -63,12 +68,12 @@ class PaperExecutionEngine:
         """페이퍼 주문은 즉시 확정되므로 입력 주문을 그대로 반환한다."""
         return order
 
-    def sync_local_open_orders(self) -> list[Order]:
+    def sync_local_open_orders(self, user_id: int | None = None) -> list[Order]:
         """페이퍼 모드에는 열린 주문 추적이 없어 빈 목록을 반환한다."""
         return []
 
     @staticmethod
-    def _build_client_order_id(idempotency_key: str, side: str) -> str:
+    def _build_client_order_id(idempotency_key: str, side: str, user_id: int = 1) -> str:
         """멱등키를 기반으로 페이퍼 주문 식별자를 생성한다."""
         token = "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in idempotency_key).strip("-")
-        return f"{token}-{side}"[:64]
+        return f"u{max(1, int(user_id))}-{token}-{side}"[:64]

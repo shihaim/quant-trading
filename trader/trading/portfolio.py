@@ -26,18 +26,19 @@ class PortfolioService:
         """포트폴리오/체결 반영 로직을 위한 세션을 보관한다."""
         self.session = session
 
-    def get_position(self, market: str) -> Position | None:
+    def get_position(self, market: str, *, user_id: int = 1) -> Position | None:
         """마켓의 현재 포지션을 조회한다."""
-        row = self.session.get(Position, market)
-        logger.debug("portfolio_get_position market=%s found=%s", market, row is not None)
+        row = self.session.get(Position, (max(1, int(user_id)), market))
+        logger.debug("portfolio_get_position user_id=%s market=%s found=%s", user_id, market, row is not None)
         return row
 
-    def upsert_position(self, market: str, qty: Decimal, avg_price: Decimal) -> Position:
+    def upsert_position(self, market: str, qty: Decimal, avg_price: Decimal, *, user_id: int = 1) -> Position:
         """포지션을 생성 또는 갱신하고 최신 상태를 반환한다."""
-        row = self.session.get(Position, market)
+        normalized_user_id = max(1, int(user_id))
+        row = self.session.get(Position, (normalized_user_id, market))
         created = row is None
         if row is None:
-            row = Position(market=market, qty=qty, avg_price=avg_price)
+            row = Position(user_id=normalized_user_id, market=market, qty=qty, avg_price=avg_price)
             self.session.add(row)
         else:
             row.qty = qty
@@ -45,7 +46,8 @@ class PortfolioService:
         self.session.commit()
         self.session.refresh(row)
         logger.debug(
-            "portfolio_upsert_position market=%s created=%s qty=%s avg_price=%s",
+            "portfolio_upsert_position user_id=%s market=%s created=%s qty=%s avg_price=%s",
+            normalized_user_id,
             market,
             created,
             row.qty,
@@ -53,15 +55,16 @@ class PortfolioService:
         )
         return row
 
-    def get_or_create_paper_wallet(self, initial_cash_krw: Decimal) -> PaperWallet:
+    def get_or_create_paper_wallet(self, initial_cash_krw: Decimal, *, user_id: int = 1) -> PaperWallet:
         """페이퍼 모드 현금 지갑을 조회하고 없으면 생성한다."""
-        wallet = self.session.get(PaperWallet, 1)
+        normalized_user_id = max(1, int(user_id))
+        wallet = self.session.get(PaperWallet, normalized_user_id)
         if wallet is None:
-            wallet = PaperWallet(id=1, cash_krw=initial_cash_krw)
+            wallet = PaperWallet(user_id=normalized_user_id, cash_krw=initial_cash_krw)
             self.session.add(wallet)
             self.session.commit()
             self.session.refresh(wallet)
-            logger.info("portfolio_wallet_created id=%s cash_krw=%s", wallet.id, wallet.cash_krw)
+            logger.info("portfolio_wallet_created user_id=%s cash_krw=%s", wallet.user_id, wallet.cash_krw)
         return wallet
 
     def apply_unapplied_fills(self, order: Order, use_paper_wallet: bool = False, initial_cash_krw: Decimal = Decimal("0")) -> int:
@@ -72,11 +75,12 @@ class PortfolioService:
         if not fills:
             logger.debug("portfolio_apply_fills_skip order_id=%s reason=no_unapplied_fills", order.id)
             return 0
-        position = self.session.get(Position, order.market)
+        user_id = max(1, int(getattr(order, "user_id", 1) or 1))
+        position = self.session.get(Position, (user_id, order.market))
         if position is None:
-            position = Position(market=order.market, qty=Decimal("0"), avg_price=Decimal("0"))
+            position = Position(user_id=user_id, market=order.market, qty=Decimal("0"), avg_price=Decimal("0"))
             self.session.add(position)
-        wallet = self.get_or_create_paper_wallet(initial_cash_krw) if use_paper_wallet else None
+        wallet = self.get_or_create_paper_wallet(initial_cash_krw, user_id=user_id) if use_paper_wallet else None
         for fill in fills:
             self._apply_fill_to_position(position, order.side, Decimal(fill.price), Decimal(fill.volume), Decimal(fill.fee))
             if wallet is not None:
@@ -126,18 +130,20 @@ class PortfolioService:
         else:
             wallet.cash_krw = Decimal(wallet.cash_krw) + notion - fee
 
-    def snapshot(self, mark_prices: dict[str, Decimal], cash_krw: Decimal) -> PortfolioSnapshot:
+    def snapshot(self, mark_prices: dict[str, Decimal], cash_krw: Decimal, *, user_id: int = 1) -> PortfolioSnapshot:
         """현재 포지션과 시세를 이용해 총 자산 스냅샷을 계산한다."""
-        rows = self.session.scalars(select(Position)).all()
+        normalized_user_id = max(1, int(user_id))
+        rows = self.session.scalars(select(Position).where(Position.user_id == normalized_user_id)).all()
         market_value = Decimal("0")
         for p in rows:
             market_value += Decimal(p.qty) * mark_prices.get(p.market, Decimal("0"))
         return PortfolioSnapshot(cash_krw=cash_krw, market_value=market_value, total_equity=cash_krw + market_value)
 
-    def update_unrealized_pnl(self, mark_prices: dict[str, Decimal]) -> Decimal:
+    def update_unrealized_pnl(self, mark_prices: dict[str, Decimal], *, user_id: int = 1) -> Decimal:
         """현재 마크가격 기준으로 포지션 평가손익을 갱신하고 합계를 반환한다."""
+        normalized_user_id = max(1, int(user_id))
         total = Decimal("0")
-        rows = self.session.scalars(select(Position)).all()
+        rows = self.session.scalars(select(Position).where(Position.user_id == normalized_user_id)).all()
         for row in rows:
             qty = Decimal(row.qty)
             if qty <= 0:
@@ -149,29 +155,31 @@ class PortfolioService:
             row.unrealized_pnl = unrealized
             total += unrealized
         self.session.commit()
-        logger.info("portfolio_unrealized_updated positions=%s total_unrealized=%s", len(rows), total)
+        logger.info("portfolio_unrealized_updated user_id=%s positions=%s total_unrealized=%s", normalized_user_id, len(rows), total)
         return total
 
-    def total_realized_pnl(self, markets: list[str] | None = None) -> Decimal:
+    def total_realized_pnl(self, markets: list[str] | None = None, *, user_id: int = 1) -> Decimal:
         """현재 저장된 포지션의 누적 실현손익 합계를 반환한다."""
-        rows = self.session.scalars(select(Position)).all()
+        normalized_user_id = max(1, int(user_id))
+        rows = self.session.scalars(select(Position).where(Position.user_id == normalized_user_id)).all()
         allowed = set(markets or [])
         total = Decimal("0")
         for row in rows:
             if allowed and row.market not in allowed:
                 continue
             total += Decimal(row.realized_pnl)
-        logger.debug("portfolio_total_realized markets=%s total=%s", sorted(allowed) if allowed else [], total)
+        logger.debug("portfolio_total_realized user_id=%s markets=%s total=%s", normalized_user_id, sorted(allowed) if allowed else [], total)
         return total
 
-    def total_unrealized_pnl(self, markets: list[str] | None = None) -> Decimal:
+    def total_unrealized_pnl(self, markets: list[str] | None = None, *, user_id: int = 1) -> Decimal:
         """현재 저장된 포지션의 평가손익 합계를 반환한다."""
-        rows = self.session.scalars(select(Position)).all()
+        normalized_user_id = max(1, int(user_id))
+        rows = self.session.scalars(select(Position).where(Position.user_id == normalized_user_id)).all()
         allowed = set(markets or [])
         total = Decimal("0")
         for row in rows:
             if allowed and row.market not in allowed:
                 continue
             total += Decimal(row.unrealized_pnl)
-        logger.debug("portfolio_total_unrealized markets=%s total=%s", sorted(allowed) if allowed else [], total)
+        logger.debug("portfolio_total_unrealized user_id=%s markets=%s total=%s", normalized_user_id, sorted(allowed) if allowed else [], total)
         return total

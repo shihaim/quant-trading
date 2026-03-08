@@ -5,24 +5,62 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
+import { opsApi } from "../lib/api";
 import { clearAuthSession, readAccessTokenOrEmpty } from "../lib/auth";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Home" },
+const PUBLIC_NAV_ITEMS = [{ href: "/", label: "Entry" }];
+
+const AUTH_NAV_ITEMS = [
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/orders", label: "Orders" },
   { href: "/pnl", label: "PnL" },
   { href: "/execution", label: "Execution Metrics" },
   { href: "/control", label: "Bot Control" }
 ];
 
+const ADMIN_NAV_ITEMS = [{ href: "/admin/ops", label: "Admin Ops" }];
+
+function isActivePath(pathname: string, href: string): boolean {
+  if (href === "/") {
+    return pathname === "/";
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [hasToken, setHasToken] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    setHasToken(Boolean(readAccessTokenOrEmpty()));
+    let disposed = false;
+    const token = readAccessTokenOrEmpty().trim();
+    setHasToken(Boolean(token));
+    setIsAdmin(false);
+    if (!token) {
+      return () => {
+        disposed = true;
+      };
+    }
+    void opsApi
+      .getMe({ accessToken: token })
+      .then((payload) => {
+        if (!disposed) {
+          setIsAdmin(Boolean(payload.user.is_admin));
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setIsAdmin(false);
+        }
+      });
+    return () => {
+      disposed = true;
+    };
   }, [pathname]);
+
+  const navItems = hasToken ? [...AUTH_NAV_ITEMS, ...(isAdmin ? ADMIN_NAV_ITEMS : [])] : PUBLIC_NAV_ITEMS;
 
   return (
     <div className="min-h-screen px-4 py-4 md:px-6">
@@ -34,8 +72,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               <h1 className="font-display text-xl">Ops Console</h1>
             </div>
             <nav className="flex flex-wrap gap-2">
-              {NAV_ITEMS.map((item) => {
-                const isActive = pathname === item.href;
+              {navItems.map((item) => {
+                const isActive = isActivePath(pathname, item.href);
                 return (
                   <Link
                     key={item.href}
@@ -54,6 +92,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onClick={() => {
                     clearAuthSession();
                     setHasToken(false);
+                    setIsAdmin(false);
                     router.push("/login");
                   }}
                 >
@@ -62,7 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               ) : (
                 <>
                   <Link
-                    href="/login"
+                    href="/login?next=%2Fdashboard"
                     className={`rounded-md px-3 py-2 text-sm transition-colors ${
                       pathname === "/login" ? "bg-ink text-white" : "border border-black/10 bg-white hover:bg-black/5"
                     }`}
@@ -70,7 +109,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     Login
                   </Link>
                   <Link
-                    href="/signup"
+                    href="/signup?next=%2Fdashboard"
                     className={`rounded-md px-3 py-2 text-sm transition-colors ${
                       pathname === "/signup" ? "bg-ink text-white" : "border border-black/10 bg-white hover:bg-black/5"
                     }`}

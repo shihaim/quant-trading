@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from trader.config.config_repo import ConfigRepo, RuntimeConfig
-from trader.data.models import BotConfig, DailyEquity, Order, TradeMetric
+from trader.data.models import DailyEquity, Order, TradeMetric, UserBotRuntime
 from trader.ops.dto import (
     ensure_utc,
     iso_kst,
@@ -41,30 +41,20 @@ def _percentile_95(values: list[Decimal]) -> Decimal | None:
 class OpsService:
     """Aggregate operation-focused API payloads from the local DB."""
 
-    def __init__(self, session: Session, trade_mode: str):
+    def __init__(self, session: Session, trade_mode: str, scope_user_id: int | None = None):
         self.session = session
         self.trade_mode = trade_mode.upper()
         self.config_repo = ConfigRepo(session)
-
-    def set_bot_enabled(self, enabled: bool) -> dict:
-        row = self.session.get(BotConfig, 1)
-        if row is None:
-            row = BotConfig(id=1)
-            self.session.add(row)
-            self.session.flush()
-        row.is_enabled = enabled
-        self.session.commit()
-        self.session.refresh(row)
-        return {
-            "is_enabled": bool(row.is_enabled),
-            "updated_at_utc": iso_utc(row.updated_at),
-            "updated_at_kst": iso_kst(row.updated_at),
-        }
+        if scope_user_id is None:
+            self.owner_user_id = self.config_repo.resolve_owner_user_id()
+        else:
+            self.owner_user_id = max(1, int(scope_user_id))
 
     def list_orders(self, state: str | None = None, limit: int = 50) -> dict:
         q = (
             select(Order)
             .options(selectinload(Order.attempts))
+            .where(Order.user_id == self.owner_user_id)
             .order_by(Order.updated_at.desc())
             .limit(max(1, min(500, limit)))
         )
@@ -77,7 +67,12 @@ class OpsService:
         normalized_tz = (tz or "UTC").upper()
         normalized_days = max(1, min(365, days))
         rows = (
-            self.session.execute(select(DailyEquity).order_by(DailyEquity.date_utc.desc()).limit(normalized_days))
+            self.session.execute(
+                select(DailyEquity)
+                .where(DailyEquity.user_id == self.owner_user_id)
+                .order_by(DailyEquity.date_utc.desc())
+                .limit(normalized_days)
+            )
             .scalars()
             .all()
         )
@@ -117,6 +112,7 @@ class OpsService:
             self.session.execute(
                 select(TradeMetric, Order.market, Order.side)
                 .join(Order, TradeMetric.order_id == Order.id)
+                .where(Order.user_id == self.owner_user_id)
                 .order_by(TradeMetric.created_at.desc())
                 .limit(normalized_limit)
             )
@@ -127,8 +123,11 @@ class OpsService:
 
     def get_summary(self, metrics_limit: int = 200, needs_review_limit: int = 10) -> dict:
         now_utc = datetime.now(timezone.utc)
-        cfg = self.config_repo.load()
-        bot_row = self.session.get(BotConfig, 1)
+        cfg = self.config_repo.load_for_user(self.owner_user_id)
+        runtime_state = self.config_repo.get_runtime_state(self.owner_user_id)
+        runtime_row = self.session.execute(
+            select(UserBotRuntime).where(UserBotRuntime.user_id == self.owner_user_id)
+        ).scalar_one_or_none()
         today = self._today_pnl_snapshot(cfg, now_utc.date())
         orders = self._orders_snapshot(needs_review_limit=needs_review_limit)
         execution = self._execution_quality_snapshot(cfg=cfg, now_utc=now_utc, limit=metrics_limit)
@@ -137,14 +136,20 @@ class OpsService:
             entry_budget=cfg.slippage_budget_entry_pct,
             exit_budget=cfg.slippage_budget_exit_pct,
         )
-        status, halt = self._resolve_status(cfg=cfg, today=today, daily_breach_count=daily_breach_count, bot_row=bot_row)
+        status, halt = self._resolve_status(
+            cfg=cfg,
+            runtime_enabled=runtime_state.is_enabled,
+            today=today,
+            daily_breach_count=daily_breach_count,
+            runtime_updated_at=runtime_row.updated_at if runtime_row is not None else None,
+        )
         last_tick = self._last_tick_utc()
         return {
             "server_time_utc": iso_utc(now_utc),
             "server_time_kst": iso_kst(now_utc),
             "trade_mode": self.trade_mode,
             "bot": {
-                "is_enabled": cfg.is_enabled,
+                "is_enabled": bool(runtime_state.is_enabled),
                 "status": status,
                 "last_tick_utc": iso_utc(last_tick),
                 "last_tick_kst": iso_kst(last_tick),
@@ -171,7 +176,7 @@ class OpsService:
                 "slippage_budget_exit_pct": to_float(cfg.slippage_budget_exit_pct),
                 "slippage_budget_breach_halt_count": cfg.slippage_budget_breach_halt_count,
                 "status_notify_interval_seconds": cfg.status_notify_interval_seconds,
-                "updated_at_utc": iso_utc(bot_row.updated_at if bot_row else None),
+                "updated_at_utc": iso_utc(runtime_row.updated_at if runtime_row else None),
             },
             "today_pnl": today,
             "orders": orders,
@@ -179,7 +184,7 @@ class OpsService:
         }
 
     def _today_pnl_snapshot(self, cfg: RuntimeConfig, today_utc: date) -> dict:
-        row = self.session.get(DailyEquity, today_utc)
+        row = self.session.get(DailyEquity, (self.owner_user_id, today_utc))
         if row is None:
             halt_threshold = -abs(to_decimal(cfg.max_daily_loss_pct))
             return {
@@ -225,13 +230,17 @@ class OpsService:
         }
 
     def _orders_snapshot(self, needs_review_limit: int) -> dict:
-        grouped = self.session.execute(select(Order.state, func.count()).group_by(Order.state)).all()
+        grouped = self.session.execute(
+            select(Order.state, func.count())
+            .where(Order.user_id == self.owner_user_id)
+            .group_by(Order.state)
+        ).all()
         by_state = {state: int(count) for state, count in grouped}
         needs_review = (
             self.session.execute(
                 select(Order)
                 .options(selectinload(Order.attempts))
-                .where(Order.state == REVIEW_STATE)
+                .where(Order.user_id == self.owner_user_id, Order.state == REVIEW_STATE)
                 .order_by(Order.updated_at.desc())
                 .limit(max(1, min(100, needs_review_limit)))
             )
@@ -254,6 +263,7 @@ class OpsService:
             self.session.execute(
                 select(TradeMetric, Order.market, Order.side)
                 .join(Order, TradeMetric.order_id == Order.id)
+                .where(Order.user_id == self.owner_user_id)
                 .order_by(TradeMetric.created_at.desc())
                 .limit(normalized_limit)
             )
@@ -309,35 +319,61 @@ class OpsService:
             self.session.scalar(
                 select(func.count())
                 .select_from(TradeMetric)
-                .where(TradeMetric.created_at >= since, TradeMetric.slippage_pct.is_not(None), conditions)
+                .join(Order, TradeMetric.order_id == Order.id)
+                .where(
+                    Order.user_id == self.owner_user_id,
+                    TradeMetric.created_at >= since,
+                    TradeMetric.slippage_pct.is_not(None),
+                    conditions,
+                )
             )
             or 0
         )
         return int(result)
 
-    def _resolve_status(self, cfg: RuntimeConfig, today: dict, daily_breach_count: int, bot_row: BotConfig | None) -> tuple[str, dict]:
+    def _resolve_status(
+        self,
+        cfg: RuntimeConfig,
+        runtime_enabled: bool,
+        today: dict,
+        daily_breach_count: int,
+        runtime_updated_at: datetime | None,
+    ) -> tuple[str, dict]:
         halt_reason: str | None = None
-        if not cfg.is_enabled:
+        effective_enabled = bool(runtime_enabled) and bool(cfg.is_enabled)
+        if not effective_enabled:
             if today["daily_pnl_pct"] <= today["halt_threshold_pct"]:
                 halt_reason = "daily_loss_limit"
             elif cfg.slippage_budget_breach_halt_count > 0 and daily_breach_count >= cfg.slippage_budget_breach_halt_count:
                 halt_reason = "auto_halt_by_slippage"
 
         status = "RUNNING"
-        if not cfg.is_enabled:
+        if not effective_enabled:
             status = "HALTED" if halt_reason else "DISABLED"
         halt = {
             "is_halted": status == "HALTED",
             "reason": halt_reason,
-            "triggered_at_utc": iso_utc(bot_row.updated_at if bot_row else None),
+            "triggered_at_utc": iso_utc(runtime_updated_at),
             "message": "bot disabled by risk guardrail" if halt_reason else None,
         }
         return status, halt
 
     def _last_tick_utc(self) -> datetime | None:
-        latest_order = ensure_utc(self.session.scalar(select(func.max(Order.updated_at))))
-        latest_metric = ensure_utc(self.session.scalar(select(func.max(TradeMetric.created_at))))
-        latest_equity = ensure_utc(self.session.scalar(select(func.max(DailyEquity.updated_at))))
+        latest_order = ensure_utc(
+            self.session.scalar(select(func.max(Order.updated_at)).where(Order.user_id == self.owner_user_id))
+        )
+        latest_metric = ensure_utc(
+            self.session.scalar(
+                select(func.max(TradeMetric.created_at))
+                .join(Order, TradeMetric.order_id == Order.id)
+                .where(Order.user_id == self.owner_user_id)
+            )
+        )
+        latest_equity = ensure_utc(
+            self.session.scalar(
+                select(func.max(DailyEquity.updated_at)).where(DailyEquity.user_id == self.owner_user_id)
+            )
+        )
         candidates = [ts for ts in [latest_order, latest_metric, latest_equity] if ts is not None]
         if not candidates:
             return None

@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from trader.config.config_repo import ConfigRepo
 from trader.data.db import Base
-from trader.data.models import BotConfig, TimeframeConfig
+from trader.data.models import BotConfig, TimeframeConfig, User, UserBotConfig, UserExchangeCredential
 
 
 def _session():
@@ -84,3 +84,73 @@ def test_load_falls_back_to_total_when_daily_loss_basis_invalid():
     cfg = ConfigRepo(session).load()
 
     assert cfg.daily_loss_basis == "TOTAL"
+
+
+def test_load_for_user_prefers_user_bot_config():
+    session = _session()
+    session.add(BotConfig(id=1, timeframe="15m", markets_json='["KRW-BTC"]'))
+    session.add(User(email="u1@example.com", password_hash="hash"))
+    session.flush()
+    session.add(
+        UserBotConfig(
+            user_id=1,
+            timeframe="30m",
+            markets_json='["KRW-ETH"]',
+            daily_loss_basis="REALIZED_ONLY",
+            max_daily_loss_pct=0.05,
+            max_total_exposure_pct=0.40,
+            max_per_market_exposure_pct=0.20,
+        )
+    )
+    session.commit()
+
+    cfg = ConfigRepo(session).load_for_user(1)
+
+    assert cfg.timeframe == "30m"
+    assert cfg.markets == ["KRW-ETH"]
+    assert cfg.daily_loss_basis == "REALIZED_ONLY"
+
+
+def test_runtime_state_defaults_and_set_enabled():
+    session = _session()
+    session.add(User(email="runtime@example.com", password_hash="hash"))
+    session.commit()
+
+    repo = ConfigRepo(session)
+    state = repo.get_runtime_state(1)
+    assert state.user_id == 1
+    assert state.is_enabled is True
+    assert state.status == "IDLE"
+
+    updated = repo.set_runtime_enabled(user_id=1, enabled=False)
+    assert updated.user_id == 1
+    assert updated.is_enabled is False
+
+
+def test_get_risk_guard_defaults_to_not_halted():
+    session = _session()
+    session.add(User(email="risk@example.com", password_hash="hash"))
+    session.commit()
+
+    state = ConfigRepo(session).get_risk_guard(1)
+
+    assert state.user_id == 1
+    assert state.manual_halt is False
+    assert state.emergency_kill_switch is False
+    assert state.is_halted is False
+
+
+def test_resolve_owner_user_id_prefers_upbit_credential_owner():
+    session = _session()
+    session.add_all(
+        [
+            User(email="a@example.com", password_hash="hash"),
+            User(email="b@example.com", password_hash="hash"),
+        ]
+    )
+    session.flush()
+    session.add(UserExchangeCredential(user_id=2, exchange="UPBIT", access_key_encrypted="a", secret_key_encrypted="b", access_key_masked="****", access_key_fingerprint="fp"))
+    session.commit()
+
+    owner_id = ConfigRepo(session).resolve_owner_user_id()
+    assert owner_id == 2

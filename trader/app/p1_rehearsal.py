@@ -28,6 +28,8 @@ def parse_args() -> argparse.Namespace:
 
 def _build_runtime():
     session = SessionLocal()
+    config_repo = ConfigRepo(session)
+    user_id = config_repo.resolve_owner_user_id()
     upbit = UpbitClient(
         base_url=settings.upbit_base_url,
         access_key=settings.upbit_access_key,
@@ -45,14 +47,14 @@ def _build_runtime():
         trade_mode=settings.trade_mode,
         allowed_markets=set(settings.allowlist_markets) if settings.enforce_market_allowlist else set(),
     )
-    reconcile = ReconcileService(session, upbit, portfolio, execution)
-    return session, upbit, candle, portfolio, execution, reconcile
+    reconcile = ReconcileService(session, upbit, portfolio, execution, user_id=user_id)
+    return session, upbit, candle, portfolio, execution, reconcile, config_repo, user_id
 
 
 def run_smoke(minutes: int, interval: int) -> None:
-    session, upbit, candle, _, _, reconcile = _build_runtime()
+    session, upbit, candle, _, _, reconcile, config_repo, user_id = _build_runtime()
     try:
-        cfg = ConfigRepo(session).load()
+        cfg = config_repo.load_for_user(user_id)
         end_at = time.time() + (minutes * 60)
         loops = 0
         while time.time() < end_at:
@@ -77,9 +79,9 @@ def run_smoke(minutes: int, interval: int) -> None:
 def run_order_cancel(market: str, distance_pct: float) -> None:
     if settings.trade_mode != "REAL":
         raise ValueError("order-cancel scenario requires TRADE_MODE=REAL")
-    session, upbit, candle, portfolio, execution, _ = _build_runtime()
+    session, upbit, candle, portfolio, execution, _, config_repo, user_id = _build_runtime()
     try:
-        cfg = ConfigRepo(session).load()
+        cfg = config_repo.load_for_user(user_id)
         target_market = market or (cfg.markets[0] if cfg.markets else "KRW-BTC")
         candle.upsert_latest_complete(target_market, cfg.timeframe)
         latest = candle.recent_candles(target_market, cfg.timeframe, 1)
@@ -95,6 +97,7 @@ def run_order_cancel(market: str, distance_pct: float) -> None:
             target_qty=target_qty,
             ref_price=far_price,
             idempotency_key=f"p1-order-cancel-{target_market}-{datetime.now(timezone.utc).isoformat()}",
+            user_id=user_id,
         )
         if order is None:
             raise RuntimeError("order not created")
@@ -138,4 +141,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

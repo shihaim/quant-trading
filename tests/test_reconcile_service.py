@@ -32,7 +32,7 @@ class FakeReconcileUpbitClient:
 
 
 class DummyExecution:
-    def sync_local_open_orders(self):
+    def sync_local_open_orders(self, user_id: int | None = None):
         return []
 
 
@@ -54,7 +54,7 @@ def test_reconcile_open_orders_creates_order_and_attempt_for_unknown_exchange_or
 
     service._reconcile_open_orders()
 
-    order = session.scalar(select(Order).where(Order.client_order_id == "upbit-upbit-open-uuid-1"))
+    order = session.scalar(select(Order).where(Order.client_order_id == "u1-upbit-upbit-open-uuid-1"))
     assert order is not None
     attempt = session.scalar(select(OrderAttempt).where(OrderAttempt.order_id == order.id))
     assert attempt is not None
@@ -72,7 +72,7 @@ def test_reconcile_open_orders_uses_next_attempt_no_for_existing_order():
         ord_type="limit",
         requested_price=Decimal("10000"),
         requested_volume=Decimal("1"),
-        client_order_id="upbit-upbit-open-uuid-1",
+        client_order_id="u1-upbit-upbit-open-uuid-1",
         state="WAIT",
     )
     session.add(order)

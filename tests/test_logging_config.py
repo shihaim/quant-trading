@@ -40,8 +40,8 @@ class _DummySession:
 
 
 class _DummyScheduler:
-    def __init__(self, session):
-        self.session = session
+    def __init__(self, *, session_factory):
+        self.session_factory = session_factory
 
     def run_forever(self) -> None:
         return None
@@ -51,7 +51,7 @@ def test_main_logs_masked_database_url_without_touching_runtime(monkeypatch, cap
     monkeypatch.setattr(app_main, "configure_file_logging", lambda **kwargs: None)
     monkeypatch.setattr(app_main, "initialize_database", lambda: None)
     monkeypatch.setattr(app_main, "SessionLocal", lambda: _DummySession())
-    monkeypatch.setattr(app_main, "TradingScheduler", _DummyScheduler)
+    monkeypatch.setattr(app_main, "MultiUserTradingScheduler", _DummyScheduler)
 
     monkeypatch.setattr(
         app_main.settings,

@@ -33,19 +33,21 @@ class ReconcileService:
         upbit_client: UpbitClient,
         portfolio: PortfolioService,
         execution: ExecutionEngine,
+        user_id: int = 1,
     ):
         """거래소 상태를 로컬 DB와 맞추는 서비스 의존성을 초기화한다."""
         self.session = session
         self.upbit_client = upbit_client
         self.portfolio = portfolio
         self.execution = execution
+        self.user_id = max(1, int(user_id))
 
     def reconcile_all(self, markets: list[str], mark_prices: dict[str, Decimal]) -> ReconcileSnapshot:
         """계좌/미체결/주문체결을 일괄 동기화하고 총자산을 계산한다."""
         logger.info("reconcile_all_start markets=%s mark_price_count=%s", markets, len(mark_prices))
         cash_krw, market_value = self._reconcile_accounts(markets=markets, mark_prices=mark_prices)
         self._reconcile_open_orders()
-        synced = self.execution.sync_local_open_orders()
+        synced = self.execution.sync_local_open_orders(user_id=self.user_id)
         applied_total = 0
         for order in synced:
             applied_total += self.portfolio.apply_unapplied_fills(order, use_paper_wallet=False)
@@ -73,7 +75,7 @@ class ReconcileService:
             account = by_currency.get(asset, {})
             qty = Decimal(str(account.get("balance", "0"))) + Decimal(str(account.get("locked", "0")))
             avg_price = Decimal(str(account.get("avg_buy_price", "0")))
-            self.portfolio.upsert_position(market=market, qty=qty, avg_price=avg_price)
+            self.portfolio.upsert_position(market=market, qty=qty, avg_price=avg_price, user_id=self.user_id)
             mark = mark_prices.get(market, avg_price)
             market_value += qty * mark
         logger.debug(
@@ -96,17 +98,22 @@ class ReconcileService:
             if not upbit_uuid:
                 continue
             upbit_identifier = str(raw.get("identifier") or "")
-            client_order_id = f"upbit-{upbit_uuid}"[:64]
+            client_order_id = f"u{self.user_id}-upbit-{upbit_uuid}"[:64]
             attempt_row = self._find_attempt_by_exchange_refs(upbit_uuid=upbit_uuid, upbit_identifier=upbit_identifier)
             order = attempt_row.order if attempt_row is not None else None
             if order is None:
-                order = self.session.scalar(select(Order).where(Order.client_order_id == client_order_id))
+                order = self.session.scalar(
+                    select(Order).where(Order.user_id == self.user_id, Order.client_order_id == client_order_id)
+                )
             if order is None:
-                order = self.session.scalar(select(Order).where(Order.upbit_uuid == upbit_uuid))
+                order = self.session.scalar(select(Order).where(Order.user_id == self.user_id, Order.upbit_uuid == upbit_uuid))
             if order is None and upbit_identifier:
-                order = self.session.scalar(select(Order).where(Order.upbit_identifier == upbit_identifier))
+                order = self.session.scalar(
+                    select(Order).where(Order.user_id == self.user_id, Order.upbit_identifier == upbit_identifier)
+                )
             if order is None:
                 order = Order(
+                    user_id=self.user_id,
                     market=str(raw.get("market")),
                     side=str(raw.get("side")),
                     ord_type=str(raw.get("ord_type", "limit")),
@@ -155,11 +162,19 @@ class ReconcileService:
         )
 
     def _find_attempt_by_exchange_refs(self, upbit_uuid: str, upbit_identifier: str) -> OrderAttempt | None:
-        row = self.session.scalar(select(OrderAttempt).where(OrderAttempt.upbit_uuid == upbit_uuid))
+        row = self.session.scalar(
+            select(OrderAttempt)
+            .join(Order, OrderAttempt.order_id == Order.id)
+            .where(Order.user_id == self.user_id, OrderAttempt.upbit_uuid == upbit_uuid)
+        )
         if row is not None:
             return row
         if upbit_identifier:
-            row = self.session.scalar(select(OrderAttempt).where(OrderAttempt.upbit_identifier == upbit_identifier))
+            row = self.session.scalar(
+                select(OrderAttempt)
+                .join(Order, OrderAttempt.order_id == Order.id)
+                .where(Order.user_id == self.user_id, OrderAttempt.upbit_identifier == upbit_identifier)
+            )
             if row is not None:
                 return row
         return None

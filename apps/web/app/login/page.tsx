@@ -23,7 +23,7 @@ function LoginPageInner() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const nextPath = useMemo(() => normalizeNextPath(searchParams.get("next"), "/orders"), [searchParams]);
+  const nextPath = useMemo(() => normalizeNextPath(searchParams.get("next"), "/dashboard"), [searchParams]);
 
   useEffect(() => {
     if (readAccessTokenOrEmpty()) {

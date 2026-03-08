@@ -100,10 +100,7 @@ export const opsApi = {
       body: JSON.stringify(payload)
     }),
   getMe: ({ accessToken }: { accessToken: string }) => request<{ user: AuthUserIdentity }>("/api/me", undefined, accessToken),
-  getSummary: () => request<OpsSummary>("/api/ops/summary"),
-  enableBot: () => request<{ is_enabled: boolean; updated_at_utc: string | null; updated_at_kst: string | null }>("/api/bot/enable", { method: "POST" }),
-  disableBot: () =>
-    request<{ is_enabled: boolean; updated_at_utc: string | null; updated_at_kst: string | null }>("/api/bot/disable", { method: "POST" }),
+  getSummary: ({ accessToken }: { accessToken: string }) => request<OpsSummary>("/api/ops/summary", undefined, accessToken),
   getMyOrders: ({
     accessToken,
     state,

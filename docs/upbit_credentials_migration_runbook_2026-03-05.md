@@ -1,87 +1,150 @@
-# Upbit Credential Migration Runbook (2026-03-05)
+# Upbit Credential Migration Runbook (Updated 2026-03-08)
 
 ## 목적
 
-기존 운영 구조(`UPBIT_ACCESS_KEY`, `UPBIT_SECRET_KEY` 전역 주입)에서,
-V2 사용자별 암호화 자격증명 구조를 안전하게 도입하기 위한 운영 절차를 정의한다.
+전역 `UPBIT_ACCESS_KEY`/`UPBIT_SECRET_KEY` 중심 운영에서,
+사용자별 암호화 자격증명(`user_exchange_credentials`) 중심 운영으로 안전하게 전환한다.
 
-## 현재 코드 기준 전제
+## 현재 코드 기준 전제 (2026-03-08)
 
-- `ops-api`는 사용자별 자격증명 저장/조회 경로를 지원한다.
-- `trader` 실거래 루프(`REAL/TEST/SHADOW`)는 아직 전역 `UPBIT_ACCESS_KEY`, `UPBIT_SECRET_KEY`를 필수로 사용한다.
-- 따라서 이번 전환은 "완전 제거"가 아니라 "병행 운영"이다.
+- `ops-api`는 사용자별 자격증명 저장/조회 및 bot 제어를 지원한다.
+- `trader` 멀티유저 스케줄러는 사용자별 자격증명을 로드해 실행한다.
+- CI/CD 배포 파이프라인은 아직 `UPBIT_*`를 `.env.runtime`에 주입하고 있다.
+- 즉, 현재 권장 전략은 `병행 운영 -> 검증 -> 전역 키 제거`다.
 
-## 사전 준비
+## 핵심 원칙
 
-1. GitHub Secrets 신규 등록
+- 자격증명 원문 입력은 운영자가 직접 수행한다.
+- `OPS_API_CREDENTIALS_ENCRYPTION_KEY`/`KEYRING`은 로테이션 계획 없이 임의 변경하지 않는다.
+- 사용자별 격리 불변식(교차 사용자 혼합 금지)을 깨지 않는다.
+
+## Phase 0. 사전 점검/백업
+
+1. 운영 DB 백업
+- `pg_dump -Fc` 1회 생성
+
+2. 사용자/자격증명 현황 파악
+- 활성 사용자 대비 등록 완료 사용자 수를 확인한다.
+- 자동 점검 스크립트 사용 가능:
+  - `python scripts/audit_upbit_credential_coverage.py --fail-on-missing --fail-on-invalid`
+
+예시 SQL:
+
+```sql
+SELECT COUNT(*) AS active_users
+FROM users
+WHERE is_active = true;
+
+SELECT COUNT(DISTINCT user_id) AS users_with_upbit_credentials
+FROM user_exchange_credentials
+WHERE exchange = 'UPBIT';
+
+SELECT u.id, u.email
+FROM users u
+LEFT JOIN user_exchange_credentials c
+  ON c.user_id = u.id
+ AND c.exchange = 'UPBIT'
+WHERE u.is_active = true
+  AND c.id IS NULL
+ORDER BY u.id;
+```
+
+## Phase 1. 시크릿/배포 경로 정비
+
+GitHub Secrets(또는 동등한 주입 경로)에 아래를 명시적으로 관리한다.
+
 - `OPS_API_AUTH_SECRET`
 - `OPS_API_CREDENTIALS_ENCRYPTION_KEY`
+- `OPS_API_CREDENTIALS_ACTIVE_KEY_VERSION` (예: `v1`)
+- `OPS_API_CREDENTIALS_KEYRING_JSON` (예: `{"v1":"<secret>"}`)
+- `OPS_API_ADMIN_EMAILS` (예: `["admin@company.com"]`)
 
-2. 기존 Secrets 유지 (필수)
-- `UPBIT_ACCESS_KEY`
-- `UPBIT_SECRET_KEY`
+배포 워크플로우의 `.env.runtime` 생성 단계에 위 값을 주입한다.
 
-3. 권장 백업
-- 운영 DB `pg_dump -Fc` 백업 1회 생성
+`UPBIT_ACCESS_KEY`/`UPBIT_SECRET_KEY`는 이 단계에서 제거하지 말고 유지한다.
 
-## 배포 절차 (권장 순서)
+## Phase 2. 사용자 자격증명 백필
 
-1. 신규 Secret 반영된 이미지/배포 적용
-- `ops-api` 먼저 재기동
-- 상태 확인 후 `trader` 재기동
+대상: 활성 사용자 중 `user_exchange_credentials` 미등록 사용자.
 
-2. API 기본 상태 확인
-- `GET /api/ops/summary`
-- `POST /api/auth/login`
-- `GET /api/me`
+절차(사용자별 반복):
 
-3. 운영 owner 계정 자격증명 백필
-- owner 계정으로 로그인 후 토큰 획득
-- `POST /api/me/credentials/upbit`에 기존 운영 키 저장
+1. `POST /api/auth/login`으로 토큰 발급
+2. `POST /api/me/credentials/upbit`로 키 저장
+3. `GET /api/me/credentials/upbit`에서 `has_credentials=true`, `is_valid=true` 확인
 
 PowerShell 예시:
 
 ```powershell
-$login = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/auth/login" `
+$base = "http://127.0.0.1:18080"
+$login = Invoke-RestMethod -Method Post -Uri "$base/api/auth/login" `
   -ContentType "application/json" `
-  -Body '{"email":"<owner-email>","password":"<owner-password>"}'
-
+  -Body '{"email":"<user-email>","password":"<user-password>"}'
 $token = $login.access_token
 
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/me/credentials/upbit" `
+Invoke-RestMethod -Method Post -Uri "$base/api/me/credentials/upbit" `
   -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json" `
   -Body '{"access_key":"<upbit-access-key>","secret_key":"<upbit-secret-key>"}'
+
+Invoke-RestMethod -Method Get -Uri "$base/api/me/credentials/upbit" `
+  -Headers @{ Authorization = "Bearer $token" }
 ```
 
-4. 사용자 경로 검증
-- `GET /api/me/credentials/upbit` -> `has_credentials=true`, `is_valid=true`
-- `GET /api/me/orders`
-- `GET /api/me/pnl/daily?days=30&tz=UTC`
-- `GET /api/me/metrics/trade?limit=50`
+템플릿 스크립트(사용자 1명 단위) 예시:
 
-## 운영 판정 기준
+```powershell
+pwsh .\scripts\backfill_upbit_credentials_template.ps1 `
+  -BaseUrl "http://127.0.0.1:18080" `
+  -Email "user@example.com" `
+  -Password "<user-password>" `
+  -AccessKey "<upbit-access-key>" `
+  -SecretKey "<upbit-secret-key>"
+```
 
-- 전역 `UPBIT_*` 유지 상태에서 기존 거래 루프 정상
-- 사용자 경로(`/api/me/*`) 인증/조회 정상
-- `credentials_required`, `no_data_scope` 등 예외가 의도대로 동작
+## Phase 3. 컷오버 검증
 
-## 롤백 가이드
+권장 순서:
 
-1. 신규 Secret 반영 전 버전으로 이미지 롤백
-2. 기존 `UPBIT_*` 중심 구성으로 즉시 복귀
-3. 필요 시 배포 전 생성한 `pg_dump`로 DB 복구
+1. `TRADE_MODE=TEST` 또는 `SHADOW`로 선검증
+2. 사용자 2명 이상으로 `/api/me/bot/start` 후 격리 동작 확인
+3. 회귀 게이트 통과 확인 (V3 Release Gates)
+4. 이상 없으면 `TRADE_MODE=REAL` 전환
 
-## 보안/운영 주의사항
+검증 체크:
 
-- `OPS_API_CREDENTIALS_ENCRYPTION_KEY`를 임의 교체하면 기존 암호문 복호화가 실패할 수 있다.
-- `OPS_API_AUTH_SECRET` 교체 시 기존 access token은 무효화된다(재로그인 필요).
-- Secret 값은 로그/문서/채팅에 평문으로 남기지 않는다.
+- `/api/me/orders`, `/api/me/pnl/daily`, `/api/me/metrics/trade`, `/api/me/bot/status`
+- 비관리자 `/api/ops` 접근 차단
+- 사용자 A 실패/halt가 사용자 B 실행을 멈추지 않는지 확인
 
-## 다음 단계 (완전 전환 조건)
+## Phase 4. 전역 `UPBIT_*` 제거
 
-아래가 구현되기 전까지는 `UPBIT_ACCESS_KEY`, `UPBIT_SECRET_KEY`를 제거하면 안 된다.
+아래 조건이 모두 만족될 때만 제거:
 
-1. `trader`가 사용자별 암호화 자격증명을 직접 읽어 주문/조회 수행
-2. 전역 `UPBIT_*` 의존 제거
-3. 사용자 범위 쓰기 작업(거래/제어) 전면 전환 및 운영 검증 완료
+1. 활성 사용자 전원 `is_valid=true`
+2. 스케줄러 credential load 실패 로그 없음
+3. 멀티유저 회귀 게이트 연속 통과
+
+제거 순서:
+
+1. GitHub Secrets에서 `UPBIT_ACCESS_KEY`, `UPBIT_SECRET_KEY` 제거(또는 비주입)
+2. 워크플로우 `.env.runtime` 생성 단계에서도 `UPBIT_*` 라인 제거
+3. 배포 후 모니터링(최소 1~2 릴리즈 사이클)
+
+## 롤백
+
+1. 배포 롤백
+- 이전 이미지/이전 `.env.runtime` 조합으로 복귀
+
+2. 키 운영 롤백
+- `OPS_API_CREDENTIALS_ACTIVE_KEY_VERSION`을 이전 버전으로 되돌림
+- `OPS_API_CREDENTIALS_KEYRING_JSON`에 이전 키 포함 유지
+
+3. 데이터 롤백(필요 시)
+- 사전 백업(`pg_dump`) 복구
+
+## 보안 주의사항
+
+- Secret 값은 문서/로그/채팅에 평문으로 남기지 않는다.
+- 키 로테이션은 반드시 런북(`docs/credential_key_rotation_runbook_2026-03-08.md`) 절차대로 진행한다.
+- `OPS_API_AUTH_SECRET` 변경 시 기존 토큰 무효화가 발생하므로 재로그인 공지 필요.

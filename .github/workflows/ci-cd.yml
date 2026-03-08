@@ -27,6 +27,9 @@ jobs:
       - name: Tests
         run: |
           pytest -q
+      - name: V3 Release Gates
+        run: |
+          pytest -q tests/test_multi_user_scheduler.py tests/test_me_read_service.py tests/test_ops_http_auth.py tests/test_v3_user_scope_migration.py
 
   build_and_push:
     needs: ci
@@ -79,6 +82,18 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v4
+      - name: Validate required runtime secrets
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.OPS_API_AUTH_SECRET }}")) {
+            throw "Missing required secret: OPS_API_AUTH_SECRET"
+          }
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.OPS_API_CREDENTIALS_ENCRYPTION_KEY }}")) {
+            throw "Missing required secret: OPS_API_CREDENTIALS_ENCRYPTION_KEY"
+          }
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.OPS_API_CREDENTIALS_KEYRING_JSON }}")) {
+            throw "Missing required secret: OPS_API_CREDENTIALS_KEYRING_JSON"
+          }
       - name: Write runtime env file (.env.runtime)
         shell: pwsh
         run: |
@@ -100,6 +115,11 @@ jobs:
           TRADE_MODE=${{ secrets.TRADE_MODE }}
           UPBIT_ACCESS_KEY=${{ secrets.UPBIT_ACCESS_KEY }}
           UPBIT_SECRET_KEY=${{ secrets.UPBIT_SECRET_KEY }}
+          OPS_API_AUTH_SECRET=${{ secrets.OPS_API_AUTH_SECRET }}
+          OPS_API_ADMIN_EMAILS=${{ secrets.OPS_API_ADMIN_EMAILS || '[]' }}
+          OPS_API_CREDENTIALS_ENCRYPTION_KEY=${{ secrets.OPS_API_CREDENTIALS_ENCRYPTION_KEY }}
+          OPS_API_CREDENTIALS_ACTIVE_KEY_VERSION=${{ secrets.OPS_API_CREDENTIALS_ACTIVE_KEY_VERSION || 'v1' }}
+          OPS_API_CREDENTIALS_KEYRING_JSON=${{ secrets.OPS_API_CREDENTIALS_KEYRING_JSON }}
           TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}
           NEXT_PUBLIC_API_BASE_URL=

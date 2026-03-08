@@ -25,8 +25,8 @@
 
 참고 문서:
 
-- `ticket/BATCH_MAP.md`
-- `ticket/2026-03-04-v2-foundation/README.md`
+- Notion Task index: `https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`
+- Notion archive page (`[ARCHIVE] 2026-03-04 V2 Foundation`): `https://www.notion.so/31b899b6d7dc8133a581ec6797ba021e`
 
 ## 2) 확정 API 계약
 

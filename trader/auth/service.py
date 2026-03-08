@@ -67,10 +67,11 @@ def _iso_utc(ts: datetime | None) -> str | None:
     return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def to_identity_payload(user: User) -> dict:
+def to_identity_payload(user: User, *, is_admin: bool = False) -> dict:
     return {
         "id": user.id,
         "email": user.email,
+        "is_admin": bool(is_admin),
         "display_name": user.display_name,
         "is_active": bool(user.is_active),
         "created_at_utc": _iso_utc(user.created_at),

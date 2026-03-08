@@ -31,10 +31,22 @@ class Settings(BaseSettings):
     ops_api_allow_origin: str = Field(default="*", alias="OPS_API_ALLOW_ORIGIN")
     ops_api_auth_secret: str = Field(default="dev-ops-auth-secret-change-me", alias="OPS_API_AUTH_SECRET")
     ops_api_auth_token_ttl_seconds: int = Field(default=43200, alias="OPS_API_AUTH_TOKEN_TTL_SECONDS")
+    ops_api_admin_emails: list[str] = Field(default_factory=list, alias="OPS_API_ADMIN_EMAILS")
     ops_api_credentials_encryption_key: str = Field(
         default="dev-ops-credentials-encryption-key-change-me",
         alias="OPS_API_CREDENTIALS_ENCRYPTION_KEY",
     )
+    ops_api_credentials_active_key_version: str = Field(
+        default="v1",
+        alias="OPS_API_CREDENTIALS_ACTIVE_KEY_VERSION",
+    )
+    ops_api_credentials_keyring_json: str = Field(
+        default="{}",
+        alias="OPS_API_CREDENTIALS_KEYRING_JSON",
+    )
+    ops_api_budget_window_seconds: int = Field(default=60, alias="OPS_API_BUDGET_WINDOW_SECONDS")
+    ops_api_budget_me_limit: int = Field(default=120, alias="OPS_API_BUDGET_ME_LIMIT")
+    ops_api_budget_admin_limit: int = Field(default=300, alias="OPS_API_BUDGET_ADMIN_LIMIT")
 
     model_config = SettingsConfigDict(
         env_file=Path(".env"),
