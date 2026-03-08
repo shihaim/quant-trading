@@ -84,14 +84,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate required runtime secrets
         shell: pwsh
+        env:
+          OPS_API_AUTH_SECRET: ${{ secrets.OPS_API_AUTH_SECRET }}
+          OPS_API_CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.OPS_API_CREDENTIALS_ENCRYPTION_KEY }}
+          OPS_API_CREDENTIALS_KEYRING_JSON: ${{ secrets.OPS_API_CREDENTIALS_KEYRING_JSON }}
         run: |
-          if ([string]::IsNullOrWhiteSpace("${{ secrets.OPS_API_AUTH_SECRET }}")) {
+          if ([string]::IsNullOrWhiteSpace($env:OPS_API_AUTH_SECRET)) {
             throw "Missing required secret: OPS_API_AUTH_SECRET"
           }
-          if ([string]::IsNullOrWhiteSpace("${{ secrets.OPS_API_CREDENTIALS_ENCRYPTION_KEY }}")) {
+          if ([string]::IsNullOrWhiteSpace($env:OPS_API_CREDENTIALS_ENCRYPTION_KEY)) {
             throw "Missing required secret: OPS_API_CREDENTIALS_ENCRYPTION_KEY"
           }
-          if ([string]::IsNullOrWhiteSpace("${{ secrets.OPS_API_CREDENTIALS_KEYRING_JSON }}")) {
+          if ([string]::IsNullOrWhiteSpace($env:OPS_API_CREDENTIALS_KEYRING_JSON)) {
             throw "Missing required secret: OPS_API_CREDENTIALS_KEYRING_JSON"
           }
       - name: Write runtime env file (.env.runtime)
