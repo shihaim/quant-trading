@@ -35,10 +35,9 @@ export default function DashboardPage() {
   }, [accessToken, handleAuthError, isAuthReady]);
 
   useEffect(() => {
-    if (isAuthReady && accessToken) {
-      void loadUser();
-    }
-  }, [accessToken, isAuthReady, loadUser]);
+    if (!isAuthReady || !accessToken) return;
+    void loadUser();
+  }, [isAuthReady, accessToken, loadUser]);
 
   if (!isAuthReady) {
     return (

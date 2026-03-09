@@ -1601,4 +1601,4 @@ def initialize_database() -> None:
         _backfill_order_attempts(conn)
         _seed_timeframe_config(conn)
         _sync_schema_docs(conn)
-        _sync_kst_views(conn)
+        # _sync_kst_views(conn)

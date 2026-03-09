@@ -30,21 +30,24 @@ function isActivePath(pathname: string, href: string): boolean {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [hasToken, setHasToken] = useState(false);
+  const [authToken, setAuthToken] = useState(() => readAccessTokenOrEmpty().trim());
   const [isAdmin, setIsAdmin] = useState(false);
+  const hasToken = Boolean(authToken);
+
+  useEffect(() => {
+    setAuthToken(readAccessTokenOrEmpty().trim());
+  }, [pathname]);
 
   useEffect(() => {
     let disposed = false;
-    const token = readAccessTokenOrEmpty().trim();
-    setHasToken(Boolean(token));
     setIsAdmin(false);
-    if (!token) {
+    if (!authToken) {
       return () => {
         disposed = true;
       };
     }
     void opsApi
-      .getMe({ accessToken: token })
+      .getMe({ accessToken: authToken })
       .then((payload) => {
         if (!disposed) {
           setIsAdmin(Boolean(payload.user.is_admin));
@@ -58,7 +61,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => {
       disposed = true;
     };
-  }, [pathname]);
+  }, [authToken]);
 
   const navItems = hasToken ? [...AUTH_NAV_ITEMS, ...(isAdmin ? ADMIN_NAV_ITEMS : [])] : PUBLIC_NAV_ITEMS;
 
@@ -91,7 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
                   onClick={() => {
                     clearAuthSession();
-                    setHasToken(false);
+                    setAuthToken("");
                     setIsAdmin(false);
                     router.push("/login");
                   }}

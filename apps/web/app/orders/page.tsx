@@ -46,10 +46,9 @@ export default function OrdersPage() {
   }, [accessToken, handleAuthError, isAuthReady, limit, stateFilter]);
 
   useEffect(() => {
-    if (isAuthReady && accessToken) {
-      void loadOrders();
-    }
-  }, [accessToken, isAuthReady, loadOrders]);
+    if (!isAuthReady || !accessToken) return;
+    void loadOrders();
+  }, [isAuthReady, accessToken, loadOrders]);
 
   const rows = payload?.items ?? [];
 
