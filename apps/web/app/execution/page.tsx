@@ -40,10 +40,9 @@ export default function ExecutionPage() {
   }, [accessToken, handleAuthError, isAuthReady, limit]);
 
   useEffect(() => {
-    if (isAuthReady && accessToken) {
-      void loadMetrics();
-    }
-  }, [accessToken, isAuthReady, loadMetrics]);
+    if (!isAuthReady || !accessToken) return;
+    void loadMetrics();
+  }, [isAuthReady, accessToken, loadMetrics]);
 
   const summary = useMemo(() => {
     const items = payload?.items ?? [];

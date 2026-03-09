@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiRequestError } from "./api";
 import { buildLoginPath, clearAuthSession, readAccessTokenOrEmpty } from "./auth";
@@ -27,24 +27,28 @@ export function useAuthGuard() {
   }, [pathname]);
 
   useEffect(() => {
-    const token = readAccessTokenOrEmpty();
+    const token = readAccessTokenOrEmpty().trim();
     if (!token) {
-      router.replace(buildLoginPath(nextPath));
+      setAccessToken("");
       setIsAuthReady(false);
+      router.replace(buildLoginPath(nextPath));
       return;
     }
     setAccessToken(token);
     setIsAuthReady(true);
   }, [nextPath, router]);
 
-  const handleAuthError = (error: unknown): boolean => {
+  const handleAuthError = useCallback((error: unknown): boolean => {
     if (error instanceof ApiRequestError && error.status === 401) {
       clearAuthSession();
       router.replace(buildLoginPath(nextPath));
       return true;
     }
     return false;
-  };
+  }, [nextPath, router]);
 
-  return { accessToken, isAuthReady, handleAuthError };
+  return useMemo(
+    () => ({ accessToken, isAuthReady, handleAuthError }),
+    [accessToken, isAuthReady, handleAuthError]
+  );
 }

@@ -42,10 +42,9 @@ export default function ControlPage() {
   }, [accessToken, handleAuthError, isAuthReady]);
 
   useEffect(() => {
-    if (isAuthReady && accessToken) {
-      void loadStatus();
-    }
-  }, [accessToken, isAuthReady, loadStatus]);
+    if (!isAuthReady || !accessToken) return;
+    void loadStatus();
+  }, [isAuthReady, accessToken, loadStatus]);
 
   const applyAction = useCallback(async () => {
     if (!pendingAction) {

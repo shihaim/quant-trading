@@ -45,10 +45,9 @@ export default function PnlPage() {
   }, [accessToken, days, handleAuthError, isAuthReady, timezone]);
 
   useEffect(() => {
-    if (isAuthReady && accessToken) {
-      void loadPnl();
-    }
-  }, [accessToken, isAuthReady, loadPnl]);
+    if (!isAuthReady || !accessToken) return;
+    void loadPnl();
+  }, [isAuthReady, accessToken, loadPnl]);
 
   const latest = payload?.items?.[0] ?? null;
 
