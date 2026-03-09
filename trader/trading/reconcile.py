@@ -51,7 +51,7 @@ class ReconcileService:
         applied_total = 0
         for order in synced:
             applied_total += self.portfolio.apply_unapplied_fills(order, use_paper_wallet=False)
-        self.portfolio.update_unrealized_pnl(mark_prices=mark_prices)
+        self.portfolio.update_unrealized_pnl(mark_prices=mark_prices, user_id=self.user_id)
         snapshot = ReconcileSnapshot(cash_krw=cash_krw, market_value=market_value, total_equity=cash_krw + market_value)
         logger.info(
             "reconcile_all_done cash_krw=%s market_value=%s total_equity=%s synced_orders=%s fills_applied=%s",
