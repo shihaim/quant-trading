@@ -7,7 +7,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
 
-from trader.data.db import Base, _seed_timeframe_config, _sync_kst_views, _sync_schema_docs
+from trader.data.db import Base, _drop_kst_views, _seed_timeframe_config, _sync_schema_docs
 
 
 @dataclass(frozen=True)
@@ -38,4 +38,4 @@ def bootstrap_target_database(runtime: SessionRuntime) -> None:
     with runtime.engine.begin() as conn:
         _seed_timeframe_config(conn)
         _sync_schema_docs(conn)
-        _sync_kst_views(conn)
+        _drop_kst_views(conn)

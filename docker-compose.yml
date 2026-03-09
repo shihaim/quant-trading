@@ -40,12 +40,15 @@ services:
     image: postgres:16-alpine
     container_name: qt-postgres
     restart: unless-stopped
+    command: ["postgres", "-c", "timezone=Asia/Seoul"]
     ports:
       - "127.0.0.1:15432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-trading}
       POSTGRES_USER: ${POSTGRES_USER:-trader}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: Asia/Seoul
+      PGTZ: Asia/Seoul
     volumes:
       - pg_data:/var/lib/postgresql/data
     networks:
@@ -66,6 +69,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading}
       LOG_DIR: /var/log/qt
+      TZ: Asia/Seoul
     volumes:
       - ops_api_logs:/var/log/qt
     networks:
@@ -90,6 +94,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading}
       LOG_DIR: /var/log/qt
+      TZ: Asia/Seoul
     volumes:
       - trader_logs:/var/log/qt
     networks:
@@ -110,6 +115,7 @@ services:
       # apps/web/lib/api.ts already prefixes requests with /api/...
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
       WEB_LOG_DIR: /var/log/qt
+      TZ: Asia/Seoul
     volumes:
       - web_client_logs:/var/log/qt
     networks:

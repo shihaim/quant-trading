@@ -4,6 +4,7 @@ import argparse
 import logging
 from collections.abc import Sequence
 
+from trader.app.logging_config import KstFormatter
 from trader.migration.contracts import DEFAULT_TABLES, PRIMARY_TABLES, MigrationOptions, PrimaryTableName
 from trader.migration.merge import MigrationService
 
@@ -68,7 +69,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _configure_logging(*, verbose: bool) -> None:
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format=LOG_FORMAT)
+    handler = logging.StreamHandler()
+    handler.setFormatter(KstFormatter(LOG_FORMAT))
+    logging.basicConfig(level=level, handlers=[handler], force=True)
 
 
 def _parse_tables(raw_tables: str) -> tuple[PrimaryTableName, ...]:

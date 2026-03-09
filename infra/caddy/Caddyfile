@@ -1,10 +1,4 @@
-qt-dashboard.local {
-  tls {
-    issuer internal {
-      # 90 days (>= 30 days required)
-      lifetime 2160h
-    }
-  }
+dont-worry-be-happy.today, www.dont-worry-be-happy.today {
   # Optional dashboard protection.
   # basicauth /* {
   #   admin <bcrypt-hash>

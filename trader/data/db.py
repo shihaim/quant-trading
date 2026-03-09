@@ -850,6 +850,64 @@ def _pk_matches(conn, table_name: str, expected: tuple[str, ...]) -> bool:
     return len(actual) == len(expected) and set(actual) == set(expected)
 
 
+def _quote_ident(identifier: str) -> str:
+    return '"' + str(identifier).replace('"', '""') + '"'
+
+
+def _postgres_ensure_daily_equity_user_scope(conn, *, owner_user_id: int) -> None:
+    inspector = inspect(conn)
+    table_names = set(inspector.get_table_names())
+    if "daily_equity" not in table_names:
+        return
+
+    daily_cols = {col["name"] for col in inspector.get_columns("daily_equity")}
+    if "user_id" not in daily_cols:
+        conn.execute(text("ALTER TABLE daily_equity ADD COLUMN user_id INTEGER"))
+    conn.execute(
+        text("UPDATE daily_equity SET user_id = COALESCE(user_id, :owner_user_id) WHERE user_id IS NULL"),
+        {"owner_user_id": owner_user_id},
+    )
+    conn.execute(text("ALTER TABLE daily_equity ALTER COLUMN user_id SET DEFAULT 1"))
+    conn.execute(text("ALTER TABLE daily_equity ALTER COLUMN user_id SET NOT NULL"))
+
+    if "start_realized_pnl" not in daily_cols:
+        conn.execute(text("ALTER TABLE daily_equity ADD COLUMN start_realized_pnl NUMERIC(28,8)"))
+    conn.execute(
+        text(
+            "UPDATE daily_equity "
+            "SET start_realized_pnl = COALESCE(start_realized_pnl, realized_pnl, 0) "
+            "WHERE start_realized_pnl IS NULL"
+        )
+    )
+    conn.execute(text("ALTER TABLE daily_equity ALTER COLUMN start_realized_pnl SET DEFAULT 0"))
+    conn.execute(text("ALTER TABLE daily_equity ALTER COLUMN start_realized_pnl SET NOT NULL"))
+
+    if not _pk_matches(conn, "daily_equity", ("user_id", "date_utc")):
+        duplicate_count = conn.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT user_id, date_utc
+                    FROM daily_equity
+                    GROUP BY user_id, date_utc
+                    HAVING COUNT(*) > 1
+                ) dup
+                """
+            )
+        ).scalar_one()
+        if int(duplicate_count or 0) > 0:
+            raise RuntimeError(
+                "daily_equity contains duplicate (user_id, date_utc) rows; cannot rebuild primary key safely"
+            )
+        pk_name = (inspect(conn).get_pk_constraint("daily_equity") or {}).get("name")
+        if pk_name:
+            conn.execute(text(f"ALTER TABLE daily_equity DROP CONSTRAINT {_quote_ident(pk_name)}"))
+        conn.execute(text("ALTER TABLE daily_equity ADD PRIMARY KEY (user_id, date_utc)"))
+
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_equity_user_id ON daily_equity(user_id)"))
+
+
 def _sqlite_rebuild_positions_user_scope(conn, *, owner_user_id: int) -> None:
     cols = {col["name"] for col in inspect(conn).get_columns("positions")}
     user_expr = "COALESCE(user_id, :owner_user_id)" if "user_id" in cols else ":owner_user_id"
@@ -1097,8 +1155,13 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
 
 
 def run_lightweight_migrations() -> None:
-    """Apply lightweight SQLite migrations without alembic."""
+    """Apply lightweight bootstrap migrations without alembic."""
     with engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            owner_user_id = _resolve_legacy_owner_user_id(conn)
+            _postgres_ensure_daily_equity_user_scope(conn, owner_user_id=owner_user_id)
+            return
+
         if not _is_sqlite_bind(conn):
             return
 
@@ -1593,6 +1656,11 @@ def _sync_kst_views(conn) -> None:
         conn.execute(text(sql))
 
 
+def _drop_kst_views(conn) -> None:
+    for view_name in _get_kst_view_sql(conn).keys():
+        conn.execute(text(f"DROP VIEW IF EXISTS {view_name}"))
+
+
 def initialize_database() -> None:
     """Create base schema and apply lightweight migrations."""
     Base.metadata.create_all(bind=engine)
@@ -1601,4 +1669,4 @@ def initialize_database() -> None:
         _backfill_order_attempts(conn)
         _seed_timeframe_config(conn)
         _sync_schema_docs(conn)
-        # _sync_kst_views(conn)
+        _drop_kst_views(conn)

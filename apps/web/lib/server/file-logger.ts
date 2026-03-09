@@ -16,6 +16,7 @@ const DEFAULT_ERROR_LOG_FILE = "web-error.log";
 const DEFAULT_LOG_LEVEL: FrontendLogLevel = "INFO";
 const DEFAULT_ROTATE_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_ROTATE_BACKUP_COUNT = 10;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 function toLevel(raw: string | undefined): FrontendLogLevel {
   const normalized = String(raw || "").toUpperCase();
@@ -91,9 +92,13 @@ export function writeFrontendLog(
   }
 
   const filePath = resolveLogPath(level);
+  const now = new Date();
+  const tsUtc = now.toISOString();
+  const tsKst = new Date(now.getTime() + KST_OFFSET_MS).toISOString().replace("Z", "+09:00");
   const line =
     JSON.stringify({
-      ts: new Date().toISOString(),
+      ts: tsKst,
+      ts_utc: tsUtc,
       level,
       source,
       message,

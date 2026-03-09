@@ -1,7 +1,7 @@
 import logging
 
 import trader.app.main as app_main
-from trader.app.logging_config import mask_connection_secret
+from trader.app.logging_config import KstFormatter, mask_connection_secret
 
 
 def test_mask_connection_secret_hides_password_and_keeps_route_details():
@@ -69,3 +69,11 @@ def test_main_logs_masked_database_url_without_touching_runtime(monkeypatch, cap
     assert "app_start" in joined
     assert "secret" not in joined
     assert "postgresql+psycopg://trader:***@postgres:5432/trading" in joined
+
+
+def test_kst_formatter_formats_time_in_asia_seoul():
+    formatter = KstFormatter("%(asctime)s")
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, "message", (), None)
+    record.created = 0
+
+    assert formatter.formatTime(record).startswith("1970-01-01 09:00:00")

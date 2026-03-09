@@ -14,7 +14,10 @@ FROM node:20-alpine
 
 WORKDIR /app/apps/web
 
+RUN apk add --no-cache tzdata
+
 ENV NODE_ENV=production
+ENV TZ=Asia/Seoul
 ARG NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from trader.data.models import UserApiBudget
@@ -173,22 +174,34 @@ class ApiBudgetService:
         )
 
     def _get_or_create_row(self, *, user_id: int, scope: str, window_seconds: int) -> UserApiBudget:
-        row = self.session.execute(
-            select(UserApiBudget).where(
-                UserApiBudget.user_id == max(1, int(user_id)),
-                UserApiBudget.scope == scope,
-            )
-        ).scalar_one_or_none()
+        normalized_user_id = max(1, int(user_id))
+        row = self._find_row(user_id=normalized_user_id, scope=scope)
         if row is not None:
             return row
         row = UserApiBudget(
-            user_id=max(1, int(user_id)),
+            user_id=normalized_user_id,
             scope=scope,
             window_seconds=window_seconds,
             request_count=0,
             blocked_count=0,
         )
         self.session.add(row)
-        self.session.commit()
-        self.session.refresh(row)
-        return row
+        try:
+            self.session.commit()
+            self.session.refresh(row)
+            return row
+        except IntegrityError:
+            # Another request created the same (user_id, scope) row first.
+            self.session.rollback()
+            existing = self._find_row(user_id=normalized_user_id, scope=scope)
+            if existing is not None:
+                return existing
+            raise
+
+    def _find_row(self, *, user_id: int, scope: str) -> UserApiBudget | None:
+        return self.session.execute(
+            select(UserApiBudget).where(
+                UserApiBudget.user_id == max(1, int(user_id)),
+                UserApiBudget.scope == scope,
+            )
+        ).scalar_one_or_none()

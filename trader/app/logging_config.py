@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import SplitResult, urlsplit, urlunsplit
@@ -16,6 +17,19 @@ class MaxLevelFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         return record.levelno <= self.max_level
+
+
+KST = timezone(timedelta(hours=9), name="Asia/Seoul")
+
+
+class KstFormatter(logging.Formatter):
+    """Always format log timestamps in Asia/Seoul."""
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        dt = datetime.fromtimestamp(record.created, tz=KST)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
 
 
 def mask_connection_secret(value: str) -> str:
@@ -70,7 +84,7 @@ def configure_file_logging(
     rotate_backup_count = int(os.getenv("LOG_ROTATE_BACKUP_COUNT", "10"))
 
     log_dir.mkdir(parents=True, exist_ok=True)
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    formatter = KstFormatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
