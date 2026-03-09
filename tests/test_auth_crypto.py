@@ -15,7 +15,9 @@ def test_encrypt_and_decrypt_secret_roundtrip():
 
 def test_decrypt_secret_rejects_tampered_ciphertext():
     token = encrypt_secret("upbit-secret-value", encryption_key="unit-test-encryption-key")
-    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    version, nonce_b64, cipher_b64, tag_b64 = token.split(".", 3)
+    tampered_tag_b64 = ("A" if tag_b64[0] != "A" else "B") + tag_b64[1:]
+    tampered = f"{version}.{nonce_b64}.{cipher_b64}.{tampered_tag_b64}"
 
     with pytest.raises(SecretCryptoError, match="ciphertext_auth_failed"):
         decrypt_secret(tampered, encryption_key="unit-test-encryption-key")
