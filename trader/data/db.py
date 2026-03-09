@@ -199,7 +199,8 @@ COLUMN_DOCS_EN = {
         "created_at": "Metric creation time.",
     },
     "positions": {
-        "market": "Primary key market code.",
+        "user_id": "Ownership key; composite primary key with market.",
+        "market": "Market code (composite primary key with user_id).",
         "qty": "Current position quantity.",
         "avg_price": "Average entry price.",
         "realized_pnl": "Accumulated realized PnL.",
@@ -397,7 +398,8 @@ COLUMN_DOCS_KO = {
         "created_at": "지표 생성 시각.",
     },
     "positions": {
-        "market": "기본 키 마켓 코드.",
+        "user_id": "소유 사용자 키(시장 코드와 함께 복합 기본 키).",
+        "market": "마켓 코드(user_id와 함께 복합 기본 키).",
         "qty": "현재 보유 수량.",
         "avg_price": "평균 매입 단가.",
         "realized_pnl": "누적 실현 손익.",
@@ -908,6 +910,48 @@ def _postgres_ensure_daily_equity_user_scope(conn, *, owner_user_id: int) -> Non
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_equity_user_id ON daily_equity(user_id)"))
 
 
+def _postgres_ensure_positions_user_scope(conn, *, owner_user_id: int) -> None:
+    inspector = inspect(conn)
+    table_names = set(inspector.get_table_names())
+    if "positions" not in table_names:
+        return
+
+    position_cols = {col["name"] for col in inspector.get_columns("positions")}
+    if "user_id" not in position_cols:
+        conn.execute(text("ALTER TABLE positions ADD COLUMN user_id INTEGER"))
+    conn.execute(
+        text("UPDATE positions SET user_id = COALESCE(user_id, :owner_user_id) WHERE user_id IS NULL"),
+        {"owner_user_id": owner_user_id},
+    )
+    conn.execute(text("ALTER TABLE positions ALTER COLUMN user_id SET DEFAULT 1"))
+    conn.execute(text("ALTER TABLE positions ALTER COLUMN user_id SET NOT NULL"))
+
+    if not _pk_matches(conn, "positions", ("user_id", "market")):
+        duplicate_count = conn.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT user_id, market
+                    FROM positions
+                    GROUP BY user_id, market
+                    HAVING COUNT(*) > 1
+                ) dup
+                """
+            )
+        ).scalar_one()
+        if int(duplicate_count or 0) > 0:
+            raise RuntimeError(
+                "positions contains duplicate (user_id, market) rows; cannot rebuild primary key safely"
+            )
+        pk_name = (inspect(conn).get_pk_constraint("positions") or {}).get("name")
+        if pk_name:
+            conn.execute(text(f"ALTER TABLE positions DROP CONSTRAINT {_quote_ident(pk_name)}"))
+        conn.execute(text("ALTER TABLE positions ADD PRIMARY KEY (user_id, market)"))
+
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_positions_user_id ON positions(user_id)"))
+
+
 def _sqlite_rebuild_positions_user_scope(conn, *, owner_user_id: int) -> None:
     cols = {col["name"] for col in inspect(conn).get_columns("positions")}
     user_expr = "COALESCE(user_id, :owner_user_id)" if "user_id" in cols else ":owner_user_id"
@@ -1159,6 +1203,7 @@ def run_lightweight_migrations() -> None:
     with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
             owner_user_id = _resolve_legacy_owner_user_id(conn)
+            _postgres_ensure_positions_user_scope(conn, owner_user_id=owner_user_id)
             _postgres_ensure_daily_equity_user_scope(conn, owner_user_id=owner_user_id)
             return
 

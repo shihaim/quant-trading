@@ -33,7 +33,6 @@ def build_v3_user_scope_sql_plan(owner_user_id: int = 1) -> V3UserScopeSqlPlan:
         "ALTER TABLE daily_equity ADD COLUMN user_id INTEGER DEFAULT 1;",
         "ALTER TABLE paper_wallet ADD COLUMN user_id INTEGER DEFAULT 1;",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_user_client_order_id ON orders(user_id, client_order_id);",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_positions_user_market ON positions(user_id, market);",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_equity_user_date ON daily_equity(user_id, date_utc);",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_paper_wallet_user ON paper_wallet(user_id);",
         "CREATE TABLE IF NOT EXISTS user_bot_config ("

@@ -5,7 +5,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR
 from typing import Callable
 
 from sqlalchemy import and_, func, or_, select
@@ -138,6 +138,50 @@ class TradingScheduler:
             next_status_notify_at=state.next_status_notify_at,
         )
 
+    @staticmethod
+    def _krw_tick_size(price: Decimal) -> Decimal:
+        if price >= Decimal("2000000"):
+            return Decimal("1000")
+        if price >= Decimal("1000000"):
+            return Decimal("500")
+        if price >= Decimal("500000"):
+            return Decimal("100")
+        if price >= Decimal("100000"):
+            return Decimal("50")
+        if price >= Decimal("10000"):
+            return Decimal("10")
+        if price >= Decimal("1000"):
+            return Decimal("1")
+        if price >= Decimal("100"):
+            return Decimal("0.1")
+        if price >= Decimal("10"):
+            return Decimal("0.01")
+        if price >= Decimal("1"):
+            return Decimal("0.001")
+        return Decimal("0.0001")
+
+    @classmethod
+    def _conservative_order_notional(
+        cls,
+        *,
+        market: str,
+        side: str,
+        ref_price: Decimal,
+        raw_delta_qty: Decimal,
+    ) -> tuple[Decimal, Decimal, Decimal]:
+        volume_adj = Decimal(raw_delta_qty).quantize(Decimal("0.00000001"), rounding=ROUND_DOWN)
+        price_adj = Decimal(ref_price)
+        if market.startswith("KRW-"):
+            tick = cls._krw_tick_size(price_adj)
+            if tick > 0:
+                scaled = price_adj / tick
+                price_rounding = ROUND_FLOOR if side == "bid" else ROUND_CEILING
+                price_adj = (scaled.to_integral_value(rounding=price_rounding) * tick).quantize(
+                    tick,
+                    rounding=ROUND_DOWN,
+                )
+        return price_adj * volume_adj, price_adj, volume_adj
+
     def _run_once(self, cfg: RuntimeConfig) -> None:
         logger.info(
             "scheduler_run_once start timeframe=%s markets=%s daily_loss_basis=%s",
@@ -253,14 +297,25 @@ class TradingScheduler:
                 )
                 continue
 
-            order_notional = abs(target_qty - current_qty) * close_price
+            raw_delta_qty = abs(target_qty - current_qty)
+            side = "bid" if target_qty > current_qty else "ask"
+            order_notional, check_price, check_volume = self._conservative_order_notional(
+                market=market,
+                side=side,
+                ref_price=close_price,
+                raw_delta_qty=raw_delta_qty,
+            )
             min_notional = Decimal("5000") + max(Decimal("0"), cfg.min_order_krw_buffer)
             if order_notional < min_notional:
                 logger.info(
-                    "scheduler_order_skipped market=%s reason=min_order_buffer order_notional=%s min_notional=%s",
+                    "scheduler_order_skipped market=%s reason=min_order_buffer order_notional=%s min_notional=%s "
+                    "check_side=%s check_price=%s check_volume=%s",
                     market,
                     order_notional,
                     min_notional,
+                    side,
+                    check_price,
+                    check_volume,
                 )
                 continue
 

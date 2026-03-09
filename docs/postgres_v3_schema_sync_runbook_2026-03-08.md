@@ -7,7 +7,7 @@
 핵심 포인트:
 - 앱 시작 시 `Base.metadata.create_all()`은 신규 테이블 생성 중심이다.
 - 기존 테이블 컬럼/제약 보강은 자동으로 모두 맞춰주지 않는다.
-- `run_lightweight_migrations()`는 SQLite 전용 경로이므로 PostgreSQL 운영 DB에는 직접 적용되지 않는다.
+- 앱 bootstrap의 `run_lightweight_migrations()`는 PostgreSQL에서 `positions`, `daily_equity`의 `user_id`/PK 보정 일부를 수행할 수 있지만, 운영 스키마 전체 싱크를 대체하지는 않는다.
 
 ## 대상 파일
 
@@ -62,13 +62,17 @@ SELECT conname
 FROM pg_constraint
 WHERE conname IN (
   'uq_orders_user_client_order_id',
-  'uq_positions_user_market',
   'uq_daily_equity_user_date',
   'uq_paper_wallet_user',
   'uq_user_exchange_credentials_user_exchange',
   'uq_user_api_budget_user_scope'
 )
 ORDER BY conname;
+
+-- positions PK 확인
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'positions'::regclass AND contype = 'p';
 ```
 
 5. 앱 재기동 후 앱 레벨 확인
@@ -81,7 +85,8 @@ ORDER BY conname;
 - `orders`: V3 관련 누락 컬럼(`user_id`, `intent`, `retry_count`, 오류/응답 컬럼) 보강
 - `fills`: `is_applied` 보강
 - `user_exchange_credentials`: `key_version` 보강 및 기본값/인덱스
-- `positions`, `daily_equity`, `paper_wallet`: `user_id` 보강 + 사용자 스코프 unique 제약
+- `positions`: `user_id` 보강 + PK를 `(user_id, market)`로 정합
+- `daily_equity`, `paper_wallet`: `user_id` 보강 + 사용자 스코프 unique 제약
 - `daily_equity`: `start_realized_pnl` 보강
 - V3 부가 테이블 생성:
   - `audit_log`

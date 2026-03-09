@@ -3,7 +3,14 @@ from __future__ import annotations
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
-from trader.data.db import Base, _get_kst_view_sql, _seed_timeframe_config, _sync_schema_docs
+import trader.data.db as db_module
+from trader.data.db import (
+    Base,
+    _get_kst_view_sql,
+    _postgres_ensure_positions_user_scope,
+    _seed_timeframe_config,
+    _sync_schema_docs,
+)
 from trader.data.models import BotConfig
 from trader.utils.timeframes import SUPPORTED_TIMEFRAMES
 
@@ -129,3 +136,46 @@ def test_user_exchange_credentials_contains_key_version_column():
 
     columns = {col["name"] for col in inspector.get_columns("user_exchange_credentials")}
     assert "key_version" in columns
+
+
+def test_postgres_positions_user_scope_repairs_legacy_primary_key(monkeypatch):
+    class _ScalarResult:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one(self):
+            return self._value
+
+    class _FakeInspector:
+        def get_table_names(self):
+            return ["positions"]
+
+        def get_columns(self, table_name: str):
+            assert table_name == "positions"
+            return [{"name": "user_id"}, {"name": "market"}]
+
+        def get_pk_constraint(self, table_name: str):
+            assert table_name == "positions"
+            return {"name": "positions_pkey", "constrained_columns": ["market"]}
+
+    class _FakeConn:
+        def __init__(self):
+            self.statements: list[str] = []
+
+        def execute(self, statement, params=None):
+            sql = str(statement)
+            self.statements.append(sql)
+            if "GROUP BY user_id, market" in sql:
+                return _ScalarResult(0)
+            return _ScalarResult(1)
+
+    inspector_stub = _FakeInspector()
+    fake_conn = _FakeConn()
+    monkeypatch.setattr(db_module, "inspect", lambda _conn: inspector_stub)
+
+    _postgres_ensure_positions_user_scope(fake_conn, owner_user_id=7)
+
+    combined = "\n".join(fake_conn.statements)
+    assert "UPDATE positions SET user_id = COALESCE(user_id, :owner_user_id) WHERE user_id IS NULL" in combined
+    assert 'ALTER TABLE positions DROP CONSTRAINT "positions_pkey"' in combined
+    assert "ALTER TABLE positions ADD PRIMARY KEY (user_id, market)" in combined
