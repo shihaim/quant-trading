@@ -1,13 +1,13 @@
 ﻿# Quant Trading MVP Context Anchor
 
-Last verified: 2026-03-06
-Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/strategy.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`
+Last verified: 2026-03-10
+Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/strategy.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/trading/order_policy.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/app/main.py`
 
 ## Quick routing
 
 Read this file first when the task changes any of these:
 - trading logic, scheduler flow, order execution, reconcile, fills, PnL, runtime config, risk, Ops API behavior
-- DB invariants for `orders`, `order_attempts`, `fills`, `positions`, `daily_equity`, `bot_config`
+- DB invariants for `orders`, `order_attempts`, `fills`, `positions`, `daily_equity`, `paper_wallet`, `user_bot_config`, `user_bot_runtime`, `user_risk_guard`, `bot_config`
 
 This file is usually not needed for:
 - simple UI text/style work in `apps/web`
@@ -19,7 +19,7 @@ Use this document as the stable invariant source for Codex/LLM-assisted work on 
 ## 1. Project shape
 
 - Project type: Upbit spot trading MVP.
-- Architecture: single Python trading service + separate Ops API + separate Next.js dashboard frontend.
+- Architecture: multi-user trading scheduler + per-user execution worker + separate Ops API + separate Next.js dashboard frontend.
 - Main Python package: `trader/`
 - Frontend: `apps/web`
 - Primary runtime entrypoints:
@@ -45,32 +45,37 @@ Important:
 
 ## 3. Core scheduler loop
 
-The trading loop lives in `trader/trading/scheduler.py`.
+The scheduler loop lives in `trader/trading/scheduler.py`.
 
-Per due tick, the scheduler does this:
+Current runtime shape:
 
-1. Load runtime config from DB.
+- `MultiUserTradingScheduler` coordinates active users and runs per-user ticks with lock-based isolation.
+- `TradingScheduler` executes one user tick.
+
+Per due tick for one user, the scheduler does this:
+
+1. Load runtime config from DB using `load_for_user(user_id)`.
 2. For each configured market:
    - backfill candles,
    - upsert latest complete candle,
    - load recent candles,
    - use the last complete candle close as mark/reference price.
 3. Build portfolio snapshot:
-   - `PAPER`: from local wallet + local positions.
-   - non-paper: via reconcile against Upbit.
-4. Update daily PnL snapshot.
+   - `PAPER`: from that user's local wallet + local positions.
+   - non-paper: via reconcile against that user's Upbit account.
+4. Update daily PnL snapshot for that user.
 5. Evaluate strategy signal.
 6. Apply risk engine.
 7. Skip rebalance if below threshold.
 8. Skip order if notional is below `5000 KRW + min_order_krw_buffer`.
-9. Place, sync, and apply fills.
-10. Check slippage budget breach and optionally auto-halt.
+9. Place, sync, and apply fills within that user scope.
+10. Check slippage budget breach and optionally auto-halt that user's runtime.
 
 Scheduled-order idempotency key:
 
 - `"{timeframe}-{market}-{last_complete_candle_time_utc}"`
-- `client_order_id = sanitized(idempotency_key) + "-" + side`
-- Same candle, market, and side must not create duplicate logical orders.
+- `client_order_id = "u{user_id}-" + sanitized(idempotency_key) + "-" + side`
+- Same candle, market, and side must not create duplicate logical orders within the same user scope.
 
 ## 4. Strategy and risk rules
 
@@ -113,9 +118,12 @@ Runtime config is loaded from DB, not only env.
 
 ### Bot config source
 
-- Main row: `bot_config.id = 1`
+- Primary source: `user_bot_config` row for the active `user_id`
+- Fallback source: global `bot_config.id = 1` when user row is missing
 - Active timeframe source: first enabled row from `timeframe_config` ordered by `id ASC`
 - If selected timeframe is invalid, fallback to `15m`
+- Runtime enable/status source: `user_bot_runtime` per user
+- Risk guard source: `user_risk_guard` per user
 
 ### Important runtime fields
 
@@ -324,16 +332,21 @@ Main tables:
 
 - `users`
 - `user_exchange_credentials`
+- `user_api_budget`
+- `audit_log`
+- `user_bot_config` (unique `user_id`)
+- `user_bot_runtime` (unique `user_id`)
+- `user_risk_guard` (unique `user_id`)
 - `bot_config`
 - `timeframe_config`
 - `candles` unique by `(market, timeframe, candle_time_utc)`
-- `orders` unique `client_order_id`
+- `orders` unique `(user_id, client_order_id)`
 - `order_attempts` unique `(order_id, attempt_no)`
 - `fills` unique `trade_id`
 - `trade_metrics` unique `order_id`
-- `positions` PK `market`
-- `daily_equity` PK `date_utc`
-- `paper_wallet` single row, usually `id = 1`
+- `positions` PK `(user_id, market)`
+- `daily_equity` PK `(user_id, date_utc)`
+- `paper_wallet` PK `user_id`
 
 Order and accounting tables are the most important anchor for modifications.
 
@@ -344,21 +357,21 @@ Ops API surfaces operational reads and writes over local DB state.
 Notable endpoints:
 
 - auth: signup/login
-- user-scoped reads under `/api/me/*`
-- legacy ops compatibility under `/api/ops/*`, `/api/orders`, `/api/pnl/daily`, `/api/metrics/trade`
-- bot enable/disable endpoints exist
+- user-scoped reads/writes under `/api/me/*` (credentials, orders, pnl, metrics, bot status/start/stop)
+- admin per-user scoped reads under `/api/admin/users/{user_id}/*`
+- admin compatibility endpoints under `/api/ops/*`, `/api/admin/*`, `/api/orders`, `/api/pnl/daily`, `/api/metrics/trade`
 
-Current read model has a legacy single-bot owner bridge:
+Current compatibility behavior:
 
-- authenticated user must have valid stored Upbit credentials
-- readable data scope is effectively tied to the minimum `user_id` that owns an Upbit credential
-- do not casually break this without redesigning user/data ownership
+- `/api/me/*` is user-scoped and must not depend on owner bridging.
+- Some legacy admin/ops endpoints still use owner fallback scope through `OpsService(scope_user_id=None)` -> `resolve_owner_user_id()`.
+- Do not casually remove compatibility fallback paths unless the task explicitly includes migration/removal.
 
 ## 13. Do-not-break rules
 
 Preserve these invariants unless the task explicitly changes product behavior:
 
-1. Do not break order idempotency by candle, market, and side.
+1. Do not break order idempotency by candle, market, and side within user scope.
 2. Do not resubmit blindly after submit ambiguity; recover by identifier first.
 3. Do not apply the same fill twice.
 4. Do not reuse `upbit_identifier` across attempts.
@@ -368,6 +381,8 @@ Preserve these invariants unless the task explicitly changes product behavior:
 8. Do not invert the slippage sign convention.
 9. Do not confuse `PAPER` immediate fills with real-mode asynchronous lifecycle.
 10. Do not assume runtime config comes only from env; DB config is authoritative at runtime.
+11. Do not mix data between users in scheduler, execution, reconcile, or Ops read paths.
+12. Do not route authenticated `/api/me/*` data reads through owner fallback scope.
 
 ## 14. Best prompt pattern for Codex in this repo
 

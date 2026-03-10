@@ -1,7 +1,7 @@
 ﻿# Quant Trading MVP Context Anchor (V3 Transition Safe)
 
-Last verified: 2026-03-06
-Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
+Last verified: 2026-03-10
+Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/me/read_service.py`, `trader/ops/service.py`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
 
 ## Quick routing
 
@@ -79,6 +79,9 @@ Do not assume these legacy patterns remain valid:
 - one shared runtime state for all users
 - one global bot enable/disable switch
 
+Current branch note:
+- `load_for_user()` uses `user_bot_config` first and only falls back to global `bot_config(id=1)` for compatibility.
+
 ## 5. Order execution invariants
 
 These remain core even while write paths become user-aware.
@@ -140,25 +143,30 @@ Upbit mapping should remain semantically consistent:
 
 ## 8. In-transition items (not hard-frozen)
 
-These areas are actively changing for V3.
+Already landed on current branch:
 
-- Scheduler flow is moving from single-engine assumptions to per-user execution contexts.
-- Runtime/config ownership is moving away from global single-row assumptions.
-- `/api/me/*` is moving away from legacy owner-bridge behavior.
-- Bot start/stop behavior is moving to per-user runtime control.
-- Schema and write paths are moving to user-aware ownership boundaries.
+- Scheduler now has `MultiUserTradingScheduler` with per-user failure isolation.
+- `/api/me/*` reads/writes are user-scoped via authenticated user identity.
+- Bot start/stop and runtime status are per-user (`user_bot_runtime`).
+- Core trading/accounting tables are user-scoped where required (`orders`, `positions`, `daily_equity`, `paper_wallet`).
+
+Remaining transition/compatibility zones:
+
+- `ConfigRepo.load_for_user()` still falls back to global `bot_config(id=1)` when `user_bot_config` is absent.
+- Legacy admin compatibility routes that instantiate `OpsService(scope_user_id=None)` still default to owner scope via `resolve_owner_user_id()`.
+- Some constructor paths still resolve owner user when `user_id` is omitted.
 
 Do not treat the following as durable invariants during V3:
-- one global scheduler loop as the only authoritative execution shape
-- one global bot row or one global runtime row
-- one owner-selected data scope for authenticated reads
-- one exchange credential path shared by normal runtime
+
+- owner fallback scope for admin compatibility routes must exist forever
+- global `bot_config(id=1)` fallback must exist forever
+- implicit owner resolution should be preferred over explicit per-user scope in new code
 
 ## 9. V3 do-not-break rules
 
 1. Do not introduce cross-user data mixing.
-2. Do not reintroduce a global single-owner bridge path.
-3. Do not reintroduce `bot_config(id=1)` as a required runtime dependency.
+2. Do not route authenticated `/api/me/*` reads through a global single-owner bridge path.
+3. Do not reintroduce `bot_config(id=1)` as a required runtime dependency outside explicit compatibility fallback.
 4. Do not make one user's runtime failure stop unrelated users.
 5. Do not break identifier-based recovery after ambiguous submit.
 6. Do not apply the same fill twice.
@@ -180,3 +188,54 @@ Use prompts in this order:
 Example:
 
 > Read `docs/context_anchor_v3_transition.md`, then inspect the scheduler/runtime/user-scoping files involved. Keep fill idempotency, identifier-based recovery, and no cross-user data mixing intact while moving runtime control to per-user scope.
+
+## 11. Post-V3 backlog guardrails (S1~S7, 2026-03-10)
+
+Reference backlog page (Notion):
+- `https://www.notion.so/31f899b6d7dc81cb897deda764f70769`
+
+Use this section when implementing the post-V3 hardening backlog.
+
+### 11.1 Story routing
+
+- S1, S2, S3: operations visibility/readability/automation hardening
+- S4, S5, S6: compatibility and safety hardening on live paths
+- S7: risk policy expansion
+
+### 11.2 Global rules for all S1~S7 changes
+
+1. Keep user scope boundaries explicit on all read/write queries.
+2. Preserve admin/non-admin boundary checks on `/ops` and `/api/admin/*`.
+3. Preserve event naming contracts where already used by tests/runbooks/dashboards.
+4. Ship changes with backend + tests (+ frontend/docs when applicable) in the same task.
+5. Do not broaden compatibility fallbacks while adding new behavior.
+
+### 11.3 Story-specific do-not-break notes
+
+- S1 (ops visibility):
+  - Do not aggregate unrelated users into a single status row.
+  - Do not expose admin-only fields to non-admin callers.
+- S2 (audit read/search):
+  - Do not expose raw sensitive secrets in API/UI payloads.
+  - Do not add unbounded full-scan defaults for long time ranges.
+- S3 (release gate artifact):
+  - Do not report pass when required checks were skipped.
+  - Always include failure reasons in artifact output.
+- S4 (legacy bot endpoint retirement):
+  - Use staged deprecation/removal; do not break known callers without migration note.
+  - Keep `/api/me/bot/*` as the single authoritative contract.
+- S5 (auth/session hardening):
+  - Keep token-expiry behavior deterministic across frontend/backend.
+  - Preserve current admin boundary while changing session lifecycle.
+- S6 (order_attempts hardening):
+  - Validate existing data before unique constraints.
+  - Keep fill idempotency and identifier recovery semantics unchanged.
+- S7 (risk policy expansion):
+  - Expose halt reasons consistently in API/UI.
+  - Keep per-user failure isolation; one user guard trigger must not stop others.
+
+### 11.4 Recommended Codex prompt fragment for S1~S7
+
+Use this exact fragment after selecting a story:
+
+> Read `docs/context_anchor_v3_transition.md` first. Implement Story `Sx` from `2026-03-10 Post-V3 Ops Hardening Backlog` while preserving: no cross-user mixing, no owner-bridge reintroduction on `/api/me/*`, no required global `bot_config(id=1)`, per-user failure isolation, and admin boundary integrity. Patch backend/tests/docs together (plus frontend if touched), then map results to story acceptance.
