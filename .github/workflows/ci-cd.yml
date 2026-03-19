@@ -24,12 +24,16 @@ jobs:
         run: |
           python -m pip install -U pip
           pip install -e ".[dev]"
-      - name: Tests
+      - name: Release Gate Report
         run: |
-          pytest -q
-      - name: V3 Release Gates
-        run: |
-          pytest -q tests/test_multi_user_scheduler.py tests/test_me_read_service.py tests/test_ops_http_auth.py tests/test_v3_user_scope_migration.py
+          python scripts/run_release_gate.py --output-dir .
+      - name: Upload Release Gate Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-report
+          path: |
+            release_gate_report.json
+            release_gate_report.md
 
   build_and_push:
     needs: ci

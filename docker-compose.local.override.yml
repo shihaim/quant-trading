@@ -1,5 +1,10 @@
 # docker-compose.local.override.yml
 services:
+  caddy:
+    volumes:
+      - ./infra/caddy/Caddyfile.local:/etc/caddy/Caddyfile:ro
+    ports:
+      - "8080:80"   # 필요하면 80:80 대신 로컬 포트로
   ops-api:
     ports:
       - "18080:8080"

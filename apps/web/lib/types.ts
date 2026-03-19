@@ -97,6 +97,118 @@ export interface OpsSummary {
   };
 }
 
+export interface AdminRuntimeSummaryItem {
+  user_id: number;
+  email: string;
+  role: string;
+  display_name: string | null;
+  is_active: boolean;
+  bot: {
+    is_enabled: boolean;
+    status: string;
+    runtime_status: string;
+    last_tick_utc: string | null;
+    updated_at_utc: string | null;
+  };
+  runtime: {
+    consecutive_failures: number;
+    last_error: string | null;
+  };
+  halt: {
+    is_halted: boolean;
+    reason: string | null;
+    triggered_at_utc: string | null;
+    message: string | null;
+  };
+  budget: {
+    scope: string;
+    limit: number;
+    window_seconds: number;
+    window_started_at_utc: string | null;
+    window_ends_at_utc: string | null;
+    request_count: number;
+    blocked_count: number;
+    remaining: number;
+    is_limited: boolean;
+  };
+  today_pnl: {
+    daily_pnl_pct: number;
+    halt_threshold_pct: number;
+  };
+  activity: {
+    recent_order_at_utc: string | null;
+    recent_audit_at_utc: string | null;
+    recent_error_at_utc: string | null;
+    recent_action_at_utc: string | null;
+  };
+  credential: {
+    exchange: string;
+    has_credentials: boolean;
+    is_valid: boolean;
+    key_version: string | null;
+    access_key_masked: string | null;
+    access_key_fingerprint_prefix: string | null;
+    updated_at_utc: string | null;
+  };
+  flags: {
+    is_halted: boolean;
+    is_budget_blocked: boolean;
+    has_runtime_error: boolean;
+    is_credential_invalid: boolean;
+    is_critical: boolean;
+  };
+}
+
+export interface AdminRuntimeSummaryResponse {
+  generated_at_utc: string | null;
+  generated_at_kst: string | null;
+  count: number;
+  items: AdminRuntimeSummaryItem[];
+  source?: string;
+  sort?: {
+    strategy: string;
+    fields: string[];
+  };
+}
+
+export interface AdminAuditLogItem {
+  id: number;
+  created_at_utc: string | null;
+  actor_user_id: number | null;
+  actor_email: string | null;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  target_user_id: number | null;
+  is_success: boolean | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AdminAuditLogsResponse {
+  items: AdminAuditLogItem[];
+  pagination: {
+    limit: number;
+    offset: number;
+    returned: number;
+    has_more: boolean;
+  };
+  scan: {
+    scanned_rows: number;
+    scan_capped: boolean;
+    max_scan_rows: number;
+  };
+  filters: {
+    actor_user_id: number | null;
+    target_user_id: number | null;
+    action: string | null;
+    target_type: string | null;
+    result: string;
+    from_utc: string;
+    to_utc: string;
+  };
+  source?: string;
+}
+
 export interface AuthUserIdentity {
   id: number;
   email: string;

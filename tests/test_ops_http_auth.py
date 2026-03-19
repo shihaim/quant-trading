@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -20,7 +20,17 @@ from trader.audit.service import (
 )
 from trader.config.settings import settings
 from trader.data.db import Base
-from trader.data.models import AuditLog, DailyEquity, Order, TradeMetric, User, UserExchangeCredential
+from trader.data.models import (
+    AuditLog,
+    DailyEquity,
+    Order,
+    TradeMetric,
+    User,
+    UserApiBudget,
+    UserBotRuntime,
+    UserExchangeCredential,
+    UserRiskGuard,
+)
 
 
 def _request_json(
@@ -829,6 +839,385 @@ def test_admin_alias_routes_and_key_rotation_endpoint(tmp_path, monkeypatch):
         assert payload["target_key_version"] == "v2"
         assert payload["rotated"] >= 1
         assert payload["failed"] == 0
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        engine.dispose()
+
+
+def test_admin_user_runtime_summary_endpoint_enforces_boundary_and_reflects_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
+
+    db_path = tmp_path / "ops-http-admin-runtime-summary.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    handler_cls = create_ops_handler(
+        session_factory=Session,
+        trade_mode="PAPER",
+        allow_origin="*",
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 201
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        admin_token = payload["access_token"]
+
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "user-a@example.com", "password": "strong-pass-123", "display_name": "User A"},
+        )
+        assert status == 201
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "user-a@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        user_a_token = payload["access_token"]
+
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "user-b@example.com", "password": "strong-pass-123", "display_name": "User B"},
+        )
+        assert status == 201
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "user-b@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        user_b_token = payload["access_token"]
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/me/credentials/upbit",
+            payload={"access_key": "access-key-a12345", "secret_key": "secret-key-a1234567890"},
+            headers={"Authorization": f"Bearer {user_a_token}"},
+        )
+        assert status == 200
+        assert payload["is_valid"] is True
+
+        with Session() as session:
+            user_a_id = session.execute(select(User.id).where(User.email == "user-a@example.com")).scalar_one()
+            user_b_id = session.execute(select(User.id).where(User.email == "user-b@example.com")).scalar_one()
+            now = datetime.now(timezone.utc)
+
+            session.add(
+                UserBotRuntime(
+                    user_id=user_b_id,
+                    is_enabled=False,
+                    status="DEGRADED",
+                    last_tick_at=now,
+                    last_error="risk_guard:manual_halt",
+                    consecutive_failures=3,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                UserRiskGuard(
+                    user_id=user_b_id,
+                    manual_halt=True,
+                    emergency_kill_switch=False,
+                    reason="operator-halt",
+                    updated_by_user_id=user_b_id,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                UserApiBudget(
+                    user_id=user_b_id,
+                    scope="ME",
+                    window_started_at=now,
+                    window_seconds=60,
+                    request_count=8,
+                    blocked_count=2,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                Order(
+                    user_id=user_a_id,
+                    market="KRW-BTC",
+                    side="bid",
+                    ord_type="limit",
+                    requested_price=Decimal("100"),
+                    requested_volume=Decimal("1"),
+                    client_order_id="runtime-summary-user-a-order",
+                    intent="ENTRY",
+                    state="OPEN",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                Order(
+                    user_id=user_b_id,
+                    market="KRW-ETH",
+                    side="ask",
+                    ord_type="limit",
+                    requested_price=Decimal("200"),
+                    requested_volume=Decimal("2"),
+                    client_order_id="runtime-summary-user-b-order",
+                    intent="EXIT",
+                    state="ERROR_NEEDS_REVIEW",
+                    error_class="RiskGuardError",
+                    last_error="risk guard halted",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                AuditLog(
+                    actor_user_id=user_b_id,
+                    action=ACTION_BOT_STOP,
+                    target_type="user_bot_runtime",
+                    target_id=str(user_b_id),
+                    metadata_json=json.dumps({"source": "test"}),
+                    created_at=now,
+                )
+            )
+            session.commit()
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/admin/users/runtime-summary?limit=50",
+            headers={"Authorization": f"Bearer {user_a_token}"},
+        )
+        assert status == 403
+        assert payload["error"] == "forbidden"
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/admin/users/runtime-summary?limit=50",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert status == 200
+        assert payload["source"] == "/api/admin/users/runtime-summary"
+        assert payload["count"] >= 3
+
+        item_by_email = {item["email"]: item for item in payload["items"]}
+        assert "user-a@example.com" in item_by_email
+        assert "user-b@example.com" in item_by_email
+
+        user_a_item = item_by_email["user-a@example.com"]
+        assert user_a_item["credential"]["has_credentials"] is True
+        assert user_a_item["credential"]["is_valid"] is True
+        assert user_a_item["flags"]["is_credential_invalid"] is False
+
+        user_b_item = item_by_email["user-b@example.com"]
+        assert user_b_item["bot"]["status"] == "HALTED"
+        assert user_b_item["halt"]["reason"] == "manual_halt"
+        assert user_b_item["budget"]["blocked_count"] == 2
+        assert user_b_item["flags"]["is_budget_blocked"] is True
+        assert user_b_item["flags"]["is_halted"] is True
+        assert user_b_item["flags"]["is_credential_invalid"] is True
+        assert user_b_item["activity"]["recent_order_at_utc"] is not None
+        assert user_b_item["activity"]["recent_audit_at_utc"] is not None
+        assert user_b_item["activity"]["recent_error_at_utc"] is not None
+
+        # Critical user (budget blocked + halted + invalid credential) should be prioritized.
+        assert payload["items"][0]["email"] == "user-b@example.com"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        engine.dispose()
+
+
+def test_admin_audit_logs_endpoint_supports_filters_pagination_and_admin_boundary(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
+
+    db_path = tmp_path / "ops-http-admin-audit-logs.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    handler_cls = create_ops_handler(
+        session_factory=Session,
+        trade_mode="PAPER",
+        allow_origin="*",
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 201
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        admin_token = payload["access_token"]
+
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "member@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 201
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "member@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        member_token = payload["access_token"]
+
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "user-a@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 201
+
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "user-b@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 201
+
+        with Session() as session:
+            admin_id = session.execute(select(User.id).where(User.email == "admin@example.com")).scalar_one()
+            user_a_id = session.execute(select(User.id).where(User.email == "user-a@example.com")).scalar_one()
+            user_b_id = session.execute(select(User.id).where(User.email == "user-b@example.com")).scalar_one()
+            base = datetime.now(timezone.utc) - timedelta(days=2)
+
+            session.add_all(
+                [
+                    AuditLog(
+                        actor_user_id=admin_id,
+                        action=ACTION_ADMIN_ACTION,
+                        target_type="admin_route",
+                        target_id=f"/api/admin/users/{user_a_id}/orders",
+                        metadata_json=json.dumps(
+                            {
+                                "source": "seed-audit",
+                                "outcome": "allowed",
+                                "target_user_id": user_a_id,
+                            }
+                        ),
+                        created_at=base + timedelta(minutes=1),
+                    ),
+                    AuditLog(
+                        actor_user_id=admin_id,
+                        action=ACTION_ADMIN_ACTION,
+                        target_type="admin_route",
+                        target_id=f"/api/admin/users/{user_b_id}/orders",
+                        metadata_json=json.dumps(
+                            {
+                                "source": "seed-audit",
+                                "outcome": "forbidden",
+                                "target_user_id": user_b_id,
+                            }
+                        ),
+                        created_at=base + timedelta(minutes=2),
+                    ),
+                    AuditLog(
+                        actor_user_id=user_b_id,
+                        action=ACTION_CREDENTIAL_UPDATE,
+                        target_type="user_exchange_credentials",
+                        target_id=f"{user_b_id}:UPBIT",
+                        metadata_json=json.dumps(
+                            {
+                                "source": "/api/me/credentials/upbit",
+                                "outcome": "success",
+                                "access_key": "should-not-leak",
+                                "secret_key": "should-not-leak",
+                            }
+                        ),
+                        created_at=base + timedelta(minutes=3),
+                    ),
+                ]
+            )
+            session.commit()
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/admin/audit/logs?limit=2",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+        assert status == 403
+        assert payload["error"] == "forbidden"
+
+        from_utc = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat().replace("+00:00", "Z")
+        to_utc = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path=f"/api/admin/audit/logs?limit=2&offset=0&from={from_utc}&to={to_utc}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert status == 200
+        assert payload["pagination"]["returned"] == 2
+        assert payload["pagination"]["has_more"] is True
+        assert payload["items"][0]["action"] == ACTION_CREDENTIAL_UPDATE
+        assert payload["items"][1]["action"] == ACTION_ADMIN_ACTION
+
+        credential_item = next(item for item in payload["items"] if item["action"] == ACTION_CREDENTIAL_UPDATE)
+        assert credential_item["metadata"]["access_key"] == "[redacted]"
+        assert credential_item["metadata"]["secret_key"] == "[redacted]"
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path=f"/api/admin/audit/logs?target_user_id={user_b_id}&result=failure&from={from_utc}&to={to_utc}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert status == 200
+        assert payload["pagination"]["returned"] == 1
+        assert payload["items"][0]["target_user_id"] == user_b_id
+        assert payload["items"][0]["is_success"] is False
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/admin/audit/logs?from=2026-01-01T00:00:00Z&to=2026-03-15T00:00:00Z",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert status == 400
+        assert payload["error"] == "invalid_date_range"
     finally:
         server.shutdown()
         server.server_close()

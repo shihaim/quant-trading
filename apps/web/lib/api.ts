@@ -1,4 +1,6 @@
 import type {
+  AdminAuditLogsResponse,
+  AdminRuntimeSummaryResponse,
   AuthTokenResponse,
   AuthUserIdentity,
   MeBotMutateResponse,
@@ -101,6 +103,50 @@ export const opsApi = {
     }),
   getMe: ({ accessToken }: { accessToken: string }) => request<{ user: AuthUserIdentity }>("/api/me", undefined, accessToken),
   getSummary: ({ accessToken }: { accessToken: string }) => request<OpsSummary>("/api/ops/summary", undefined, accessToken),
+  getAdminUsersRuntimeSummary: ({ accessToken, limit }: { accessToken: string; limit?: number }) =>
+    request<AdminRuntimeSummaryResponse>(
+      withQuery("/api/admin/users/runtime-summary", { limit }),
+      undefined,
+      accessToken
+    ),
+  getAdminAuditLogs: ({
+    accessToken,
+    actor_user_id,
+    target_user_id,
+    action,
+    target_type,
+    result,
+    from,
+    to,
+    limit,
+    offset,
+  }: {
+    accessToken: string;
+    actor_user_id?: number;
+    target_user_id?: number;
+    action?: string;
+    target_type?: string;
+    result?: "all" | "success" | "failure";
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  }) =>
+    request<AdminAuditLogsResponse>(
+      withQuery("/api/admin/audit/logs", {
+        actor_user_id,
+        target_user_id,
+        action,
+        target_type,
+        result,
+        from,
+        to,
+        limit,
+        offset,
+      }),
+      undefined,
+      accessToken
+    ),
   getMyOrders: ({
     accessToken,
     state,

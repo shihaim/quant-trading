@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -16,6 +17,7 @@ from trader.audit.service import (
     ACTION_BOT_STOP,
     ACTION_CREDENTIAL_UPDATE,
     ACTION_REQUEST_BUDGET_BLOCKED,
+    AuditLogReadQuery,
     AuditService,
 )
 from trader.auth.credentials import CredentialRotationError, CredentialValidationError, UserCredentialService
@@ -51,6 +53,57 @@ def _parse_positive_int(raw: str | None, fallback: int, max_value: int) -> int:
     if value <= 0:
         return fallback
     return min(value, max_value)
+
+
+def _parse_non_negative_int(raw: str | None, fallback: int, max_value: int) -> int:
+    if raw is None:
+        return fallback
+    try:
+        value = int(raw)
+    except Exception:
+        return fallback
+    if value < 0:
+        return fallback
+    return min(value, max_value)
+
+
+def _parse_optional_positive_int(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    try:
+        value = int(str(raw).strip())
+    except Exception:
+        return None
+    return value if value > 0 else None
+
+
+def _parse_utc_datetime(raw: str | None) -> datetime | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _parse_success_filter(raw: str | None) -> bool | None:
+    if raw is None:
+        return None
+    value = str(raw).strip().lower()
+    if not value or value == "all":
+        return None
+    if value in {"success", "true", "1", "ok", "allowed", "pass"}:
+        return True
+    if value in {"failure", "failed", "false", "0", "forbidden", "blocked", "denied", "error"}:
+        return False
+    return None
 
 
 def create_ops_handler(
@@ -405,6 +458,158 @@ def create_ops_handler(
                     payload = me_service.get_bot_status(user=user)
                     payload["api_budget"] = budget
                     self._write_json(200, payload)
+                    return
+                if parsed.path == "/api/admin/users/runtime-summary":
+                    admin_user = self._require_admin_user(session=session)
+                    if admin_user is None:
+                        return
+                    if self._enforce_request_budget(
+                        session=session,
+                        user=admin_user,
+                        scope=SCOPE_ADMIN,
+                        source=parsed.path,
+                    ) is None:
+                        return
+                    limit = _parse_positive_int(params.get("limit", [None])[0], fallback=200, max_value=1000)
+                    payload = service.list_admin_runtime_summary(
+                        budget_limit=self._budget_limit(scope=SCOPE_ME),
+                        budget_window_seconds=self._budget_window_seconds(),
+                        max_users=limit,
+                    )
+                    items = list(payload.get("items", []))
+                    user_ids: list[int] = []
+                    for item in items:
+                        try:
+                            user_id = int(item.get("user_id", 0))
+                        except Exception:
+                            continue
+                        if user_id > 0:
+                            user_ids.append(user_id)
+                    target_users = (
+                        session.execute(select(User).where(User.id.in_(user_ids))).scalars().all()
+                        if user_ids
+                        else []
+                    )
+                    user_by_id = {user.id: user for user in target_users}
+                    admin_email_set = self._admin_email_set()
+                    credential_service = self._credential_service(session=session)
+                    for item in items:
+                        user_id = int(item.get("user_id", 0))
+                        target_user = user_by_id.get(user_id)
+                        if target_user is None:
+                            role = "member"
+                            credential = {
+                                "exchange": "UPBIT",
+                                "has_credentials": False,
+                                "is_valid": False,
+                                "key_version": None,
+                                "access_key_masked": None,
+                                "access_key_fingerprint_prefix": None,
+                                "updated_at_utc": None,
+                            }
+                        else:
+                            role = "admin" if normalize_email(target_user.email) in admin_email_set else "member"
+                            credential = credential_service.get_exchange_credential_status(user=target_user, exchange="UPBIT")
+
+                        flags = item.setdefault("flags", {})
+                        is_credential_invalid = bool((not credential.get("has_credentials")) or (not credential.get("is_valid")))
+                        flags["is_credential_invalid"] = is_credential_invalid
+                        flags["is_critical"] = bool(
+                            flags.get("is_budget_blocked")
+                            or flags.get("is_halted")
+                            or is_credential_invalid
+                        )
+                        item["role"] = role
+                        item["credential"] = credential
+
+                    items.sort(
+                        key=lambda row: (
+                            (4 if row.get("flags", {}).get("is_budget_blocked") else 0)
+                            + (2 if row.get("flags", {}).get("is_halted") else 0)
+                            + (1 if row.get("flags", {}).get("is_credential_invalid") else 0),
+                            row.get("activity", {}).get("recent_action_at_utc") or "",
+                            int(row.get("user_id", 0)),
+                        ),
+                        reverse=True,
+                    )
+                    payload["items"] = items
+                    payload["source"] = parsed.path
+                    payload["sort"] = {
+                        "strategy": "critical_then_recent_action",
+                        "fields": [
+                            "flags.is_budget_blocked",
+                            "flags.is_halted",
+                            "flags.is_credential_invalid",
+                            "activity.recent_action_at_utc",
+                        ],
+                    }
+                    self._write_json(200, payload)
+                    self._record_audit_action(
+                        session=session,
+                        actor_user_id=admin_user.id,
+                        action=ACTION_ADMIN_ACTION,
+                        target_type="admin_route",
+                        target_id=parsed.path,
+                        metadata={"source": parsed.path, "method": "GET", "outcome": "allowed"},
+                    )
+                    return
+                if parsed.path == "/api/admin/audit/logs":
+                    admin_user = self._require_admin_user(session=session)
+                    if admin_user is None:
+                        return
+                    if self._enforce_request_budget(
+                        session=session,
+                        user=admin_user,
+                        scope=SCOPE_ADMIN,
+                        source=parsed.path,
+                    ) is None:
+                        return
+                    now_utc = datetime.now(timezone.utc)
+                    to_utc = _parse_utc_datetime(params.get("to", [None])[0]) or now_utc
+                    from_utc = _parse_utc_datetime(params.get("from", [None])[0]) or (to_utc - timedelta(days=7))
+                    if from_utc > to_utc:
+                        self._write_json(400, {"error": "invalid_date_range", "message": "from_must_be_before_to"})
+                        return
+                    if (to_utc - from_utc) > timedelta(days=31):
+                        self._write_json(400, {"error": "invalid_date_range", "message": "max_range_days_31"})
+                        return
+                    query = AuditLogReadQuery(
+                        actor_user_id=_parse_optional_positive_int(params.get("actor_user_id", [None])[0]),
+                        target_user_id=_parse_optional_positive_int(params.get("target_user_id", [None])[0]),
+                        action=(params.get("action", [None])[0] or None),
+                        target_type=(params.get("target_type", [None])[0] or None),
+                        from_utc=from_utc,
+                        to_utc=to_utc,
+                        success=_parse_success_filter(params.get("result", [None])[0] or params.get("success", [None])[0]),
+                        limit=_parse_positive_int(params.get("limit", [None])[0], fallback=50, max_value=200),
+                        offset=_parse_non_negative_int(params.get("offset", [None])[0], fallback=0, max_value=100000),
+                    )
+                    payload = AuditService(session=session).list_logs(query=query)
+                    payload["source"] = parsed.path
+                    payload["filters"] = {
+                        "actor_user_id": query.actor_user_id,
+                        "target_user_id": query.target_user_id,
+                        "action": query.action,
+                        "target_type": query.target_type,
+                        "result": (
+                            "success"
+                            if query.success is True
+                            else "failure"
+                            if query.success is False
+                            else "all"
+                        ),
+                        "from_utc": from_utc.isoformat().replace("+00:00", "Z"),
+                        "to_utc": to_utc.isoformat().replace("+00:00", "Z"),
+                    }
+                    self._write_json(200, payload)
+                    self._record_audit_action(
+                        session=session,
+                        actor_user_id=admin_user.id,
+                        action=ACTION_ADMIN_ACTION,
+                        target_type="admin_route",
+                        target_id=parsed.path,
+                        metadata={"source": parsed.path, "method": "GET", "outcome": "allowed"},
+                    )
                     return
                 parsed_admin_scope = self._parse_admin_user_scope_path(parsed.path)
                 if parsed_admin_scope is not None:

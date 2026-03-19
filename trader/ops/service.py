@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from trader.config.config_repo import ConfigRepo, RuntimeConfig
-from trader.data.models import DailyEquity, Order, TradeMetric, UserBotRuntime
+from trader.data.models import AuditLog, DailyEquity, Order, TradeMetric, User, UserApiBudget, UserBotRuntime, UserRiskGuard
 from trader.ops.dto import (
     ensure_utc,
     iso_kst,
@@ -183,6 +183,208 @@ class OpsService:
             "execution_quality": execution,
         }
 
+    def list_admin_runtime_summary(
+        self,
+        *,
+        budget_limit: int,
+        budget_window_seconds: int,
+        max_users: int = 200,
+    ) -> dict:
+        normalized_max_users = max(1, min(5000, int(max_users)))
+        normalized_budget_limit = max(1, int(budget_limit))
+        normalized_budget_window_seconds = max(10, min(3600, int(budget_window_seconds)))
+        now_utc = datetime.now(timezone.utc)
+        today_utc = now_utc.date()
+        day_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        users = (
+            self.session.execute(
+                select(User)
+                .order_by(User.id.asc())
+                .limit(normalized_max_users)
+            )
+            .scalars()
+            .all()
+        )
+        if not users:
+            return {
+                "generated_at_utc": iso_utc(now_utc),
+                "generated_at_kst": iso_kst(now_utc),
+                "count": 0,
+                "items": [],
+            }
+
+        user_ids = [user.id for user in users]
+        runtime_rows = {
+            row.user_id: row
+            for row in (
+                self.session.execute(
+                    select(UserBotRuntime).where(UserBotRuntime.user_id.in_(user_ids))
+                )
+                .scalars()
+                .all()
+            )
+        }
+        risk_guard_rows = {
+            row.user_id: row
+            for row in (
+                self.session.execute(
+                    select(UserRiskGuard).where(UserRiskGuard.user_id.in_(user_ids))
+                )
+                .scalars()
+                .all()
+            )
+        }
+        budget_rows = {
+            row.user_id: row
+            for row in (
+                self.session.execute(
+                    select(UserApiBudget).where(
+                        UserApiBudget.user_id.in_(user_ids),
+                        UserApiBudget.scope == "ME",
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        }
+
+        last_order_by_user = {
+            int(user_id): ensure_utc(updated_at)
+            for user_id, updated_at in self.session.execute(
+                select(Order.user_id, func.max(Order.updated_at))
+                .where(Order.user_id.in_(user_ids))
+                .group_by(Order.user_id)
+            ).all()
+        }
+        last_order_error_by_user = {
+            int(user_id): ensure_utc(updated_at)
+            for user_id, updated_at in self.session.execute(
+                select(Order.user_id, func.max(Order.updated_at))
+                .where(
+                    Order.user_id.in_(user_ids),
+                    or_(Order.error_class.is_not(None), Order.last_error.is_not(None)),
+                )
+                .group_by(Order.user_id)
+            ).all()
+        }
+        last_audit_by_user = {
+            int(actor_user_id): ensure_utc(created_at)
+            for actor_user_id, created_at in self.session.execute(
+                select(AuditLog.actor_user_id, func.max(AuditLog.created_at))
+                .where(
+                    AuditLog.actor_user_id.is_not(None),
+                    AuditLog.actor_user_id.in_(user_ids),
+                )
+                .group_by(AuditLog.actor_user_id)
+            ).all()
+            if actor_user_id is not None
+        }
+
+        items: list[dict] = []
+        for user in users:
+            user_id = int(user.id)
+            cfg = self.config_repo.load_for_user(user_id)
+            runtime_row = runtime_rows.get(user_id)
+            guard_row = risk_guard_rows.get(user_id)
+            budget_row = budget_rows.get(user_id)
+
+            runtime_enabled = bool(getattr(runtime_row, "is_enabled", True))
+            runtime_status = str(getattr(runtime_row, "status", "IDLE") or "IDLE")
+            runtime_last_error = getattr(runtime_row, "last_error", None)
+            runtime_consecutive_failures = int(getattr(runtime_row, "consecutive_failures", 0) or 0)
+            runtime_updated_at = ensure_utc(getattr(runtime_row, "updated_at", None))
+            runtime_last_tick_at = ensure_utc(getattr(runtime_row, "last_tick_at", None))
+
+            today = self._today_pnl_snapshot(cfg, today_utc)
+            daily_breach_count = self._count_breach_since_for_user(
+                user_id=user_id,
+                since=day_start_utc,
+                entry_budget=cfg.slippage_budget_entry_pct,
+                exit_budget=cfg.slippage_budget_exit_pct,
+            )
+            status, halt = self._resolve_status(
+                cfg=cfg,
+                runtime_enabled=runtime_enabled,
+                today=today,
+                daily_breach_count=daily_breach_count,
+                runtime_updated_at=runtime_updated_at,
+            )
+
+            guard_is_halted = bool(getattr(guard_row, "manual_halt", False) or getattr(guard_row, "emergency_kill_switch", False))
+            if guard_is_halted:
+                status = "HALTED"
+                guard_reason = "manual_halt" if bool(getattr(guard_row, "manual_halt", False)) else "emergency_kill_switch"
+                halt = {
+                    "is_halted": True,
+                    "reason": guard_reason,
+                    "triggered_at_utc": iso_utc(ensure_utc(getattr(guard_row, "updated_at", None)) or runtime_updated_at),
+                    "message": str(getattr(guard_row, "reason", "") or guard_reason),
+                }
+
+            budget = self._to_budget_summary(
+                budget_row=budget_row,
+                budget_limit=normalized_budget_limit,
+                budget_window_seconds=normalized_budget_window_seconds,
+            )
+
+            recent_order_at = last_order_by_user.get(user_id)
+            recent_audit_at = last_audit_by_user.get(user_id)
+            order_error_at = last_order_error_by_user.get(user_id)
+            runtime_error_at = runtime_updated_at if runtime_last_error else None
+            recent_error_at = self._max_timestamp(runtime_error_at, order_error_at)
+            recent_action_at = self._max_timestamp(
+                recent_order_at,
+                recent_audit_at,
+                recent_error_at,
+                runtime_last_tick_at,
+                runtime_updated_at,
+            )
+
+            items.append(
+                {
+                    "user_id": user_id,
+                    "email": user.email,
+                    "display_name": user.display_name,
+                    "is_active": bool(user.is_active),
+                    "bot": {
+                        "is_enabled": runtime_enabled,
+                        "status": status,
+                        "runtime_status": runtime_status,
+                        "last_tick_utc": iso_utc(runtime_last_tick_at),
+                        "updated_at_utc": iso_utc(runtime_updated_at),
+                    },
+                    "runtime": {
+                        "consecutive_failures": runtime_consecutive_failures,
+                        "last_error": runtime_last_error,
+                    },
+                    "halt": halt,
+                    "budget": budget,
+                    "today_pnl": {
+                        "daily_pnl_pct": today["daily_pnl_pct"],
+                        "halt_threshold_pct": today["halt_threshold_pct"],
+                    },
+                    "activity": {
+                        "recent_order_at_utc": iso_utc(recent_order_at),
+                        "recent_audit_at_utc": iso_utc(recent_audit_at),
+                        "recent_error_at_utc": iso_utc(recent_error_at),
+                        "recent_action_at_utc": iso_utc(recent_action_at),
+                    },
+                    "flags": {
+                        "is_halted": bool(halt.get("is_halted")),
+                        "is_budget_blocked": bool(budget.get("blocked_count", 0) > 0 or budget.get("is_limited")),
+                        "has_runtime_error": bool(runtime_last_error),
+                    },
+                }
+            )
+
+        return {
+            "generated_at_utc": iso_utc(now_utc),
+            "generated_at_kst": iso_kst(now_utc),
+            "count": len(items),
+            "items": items,
+        }
+
     def _today_pnl_snapshot(self, cfg: RuntimeConfig, today_utc: date) -> dict:
         row = self.session.get(DailyEquity, (self.owner_user_id, today_utc))
         if row is None:
@@ -311,6 +513,21 @@ class OpsService:
         }
 
     def _count_breach_since(self, since: datetime, entry_budget: Decimal, exit_budget: Decimal) -> int:
+        return self._count_breach_since_for_user(
+            user_id=self.owner_user_id,
+            since=since,
+            entry_budget=entry_budget,
+            exit_budget=exit_budget,
+        )
+
+    def _count_breach_since_for_user(
+        self,
+        *,
+        user_id: int,
+        since: datetime,
+        entry_budget: Decimal,
+        exit_budget: Decimal,
+    ) -> int:
         conditions = or_(
             and_(TradeMetric.intent == "EXIT", TradeMetric.slippage_pct > exit_budget),
             and_(or_(TradeMetric.intent.is_(None), TradeMetric.intent != "EXIT"), TradeMetric.slippage_pct > entry_budget),
@@ -321,7 +538,7 @@ class OpsService:
                 .select_from(TradeMetric)
                 .join(Order, TradeMetric.order_id == Order.id)
                 .where(
-                    Order.user_id == self.owner_user_id,
+                    Order.user_id == max(1, int(user_id)),
                     TradeMetric.created_at >= since,
                     TradeMetric.slippage_pct.is_not(None),
                     conditions,
@@ -330,6 +547,52 @@ class OpsService:
             or 0
         )
         return int(result)
+
+    @staticmethod
+    def _to_budget_summary(
+        *,
+        budget_row: UserApiBudget | None,
+        budget_limit: int,
+        budget_window_seconds: int,
+    ) -> dict:
+        normalized_limit = max(1, int(budget_limit))
+        normalized_window = max(10, min(3600, int(budget_window_seconds)))
+        if budget_row is None:
+            return {
+                "scope": "me",
+                "limit": normalized_limit,
+                "window_seconds": normalized_window,
+                "window_started_at_utc": None,
+                "window_ends_at_utc": None,
+                "request_count": 0,
+                "blocked_count": 0,
+                "remaining": normalized_limit,
+                "is_limited": False,
+            }
+
+        row_window_seconds = max(10, min(3600, int(getattr(budget_row, "window_seconds", normalized_window) or normalized_window)))
+        request_count = int(getattr(budget_row, "request_count", 0) or 0)
+        blocked_count = int(getattr(budget_row, "blocked_count", 0) or 0)
+        window_started_at = ensure_utc(getattr(budget_row, "window_started_at", None))
+        window_ends_at = window_started_at + timedelta(seconds=row_window_seconds) if window_started_at is not None else None
+        return {
+            "scope": str(getattr(budget_row, "scope", "ME") or "ME").lower(),
+            "limit": normalized_limit,
+            "window_seconds": row_window_seconds,
+            "window_started_at_utc": iso_utc(window_started_at),
+            "window_ends_at_utc": iso_utc(window_ends_at),
+            "request_count": request_count,
+            "blocked_count": blocked_count,
+            "remaining": max(0, normalized_limit - request_count),
+            "is_limited": request_count >= normalized_limit,
+        }
+
+    @staticmethod
+    def _max_timestamp(*values: datetime | None) -> datetime | None:
+        candidates = [ensure_utc(value) for value in values if value is not None]
+        if not candidates:
+            return None
+        return max(candidates)
 
     def _resolve_status(
         self,
