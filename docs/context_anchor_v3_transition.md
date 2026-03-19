@@ -1,7 +1,7 @@
 ﻿# Quant Trading MVP Context Anchor (V3 Transition Safe)
 
-Last verified: 2026-03-10
-Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/me/read_service.py`, `trader/ops/service.py`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
+Last verified: 2026-03-19
+Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `scripts/run_release_gate.py`, `apps/web/components/admin-users-runtime-table.tsx`, `apps/web/components/admin-audit-log-viewer.tsx`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
 
 ## Quick routing
 
@@ -218,9 +218,11 @@ Use this section when implementing the post-V3 hardening backlog.
 - S2 (audit read/search):
   - Do not expose raw sensitive secrets in API/UI payloads.
   - Do not add unbounded full-scan defaults for long time ranges.
+  - Keep bounded query windows (default bounded range, explicit max range guard).
 - S3 (release gate artifact):
   - Do not report pass when required checks were skipped.
   - Always include failure reasons in artifact output.
+  - Keep credential coverage check reproducible on CI/local (avoid environment-only pass conditions).
 - S4 (legacy bot endpoint retirement):
   - Use staged deprecation/removal; do not break known callers without migration note.
   - Keep `/api/me/bot/*` as the single authoritative contract.
@@ -239,3 +241,14 @@ Use this section when implementing the post-V3 hardening backlog.
 Use this exact fragment after selecting a story:
 
 > Read `docs/context_anchor_v3_transition.md` first. Implement Story `Sx` from `2026-03-10 Post-V3 Ops Hardening Backlog` while preserving: no cross-user mixing, no owner-bridge reintroduction on `/api/me/*`, no required global `bot_config(id=1)`, per-user failure isolation, and admin boundary integrity. Patch backend/tests/docs together (plus frontend if touched), then map results to story acceptance.
+
+### 11.5 Implemented B1 references (2026-03-19)
+
+Use these as current contracts for B1-complete branches:
+
+- S1 endpoint: `GET /api/admin/users/runtime-summary`
+- S2 endpoint: `GET /api/admin/audit/logs`
+  - filters: `actor_user_id`, `target_user_id`, `action`, `target_type`, `from`, `to`, `result`
+  - guardrails: default bounded window, maximum date-range guard, latest-first pagination
+- S3 command: `python scripts/run_release_gate.py --output-dir .`
+  - artifacts: `release_gate_report.json`, `release_gate_report.md`

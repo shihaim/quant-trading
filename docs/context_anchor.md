@@ -1,7 +1,7 @@
 ﻿# Quant Trading MVP Context Anchor
 
-Last verified: 2026-03-10
-Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/strategy.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/trading/order_policy.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/app/main.py`
+Last verified: 2026-03-19
+Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/strategy.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/trading/order_policy.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `trader/app/main.py`
 
 ## Quick routing
 
@@ -359,7 +359,13 @@ Notable endpoints:
 - auth: signup/login
 - user-scoped reads/writes under `/api/me/*` (credentials, orders, pnl, metrics, bot status/start/stop)
 - admin per-user scoped reads under `/api/admin/users/{user_id}/*`
+- admin ops visibility summary: `GET /api/admin/users/runtime-summary`
+- admin audit read/search: `GET /api/admin/audit/logs`
 - admin compatibility endpoints under `/api/ops/*`, `/api/admin/*`, `/api/orders`, `/api/pnl/daily`, `/api/metrics/trade`
+
+Release gate artifact command:
+
+- `python scripts/run_release_gate.py --output-dir .`
 
 Current compatibility behavior:
 
