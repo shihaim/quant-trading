@@ -30,7 +30,9 @@ trading.db
 *.log
 logs/
 /backups/
-/scripts/
+/scripts/*
+!/scripts/run_release_gate.py
+!/scripts/audit_upbit_credential_coverage.py
 infra/caddy/root.crt
 
 # Environment / secrets
