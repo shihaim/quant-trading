@@ -202,6 +202,7 @@ export function AdminUsersRuntimeTable({
                   <td className="px-3 py-2">
                     <p>{item.halt.reason || "-"}</p>
                     <p className="text-xs text-muted">{short(item.halt.message || "-", 64)}</p>
+                    <p className="text-xs text-muted">cooldown {asTime(item.halt.cooldown_until_utc, "en-US")}</p>
                     <p className="text-xs text-muted">
                       pnl {asPct(item.today_pnl.daily_pnl_pct, "en-US")} / threshold {asPct(item.today_pnl.halt_threshold_pct, "en-US")}
                     </p>

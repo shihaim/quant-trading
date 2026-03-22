@@ -138,6 +138,29 @@ def test_user_exchange_credentials_contains_key_version_column():
     assert "key_version" in columns
 
 
+def test_bot_config_contains_extended_risk_policy_columns():
+    engine = _engine()
+    inspector = inspect(engine)
+
+    columns = {col["name"] for col in inspector.get_columns("bot_config")}
+    assert "max_weekly_loss_pct" in columns
+    assert "max_monthly_loss_pct" in columns
+    assert "cooldown_hours_on_halt" in columns
+    assert "max_new_orders_per_day" in columns
+    assert "max_orders_per_week" in columns
+    assert "min_edge_pct" in columns
+
+
+def test_user_bot_runtime_contains_halt_and_cooldown_columns():
+    engine = _engine()
+    inspector = inspect(engine)
+
+    columns = {col["name"] for col in inspector.get_columns("user_bot_runtime")}
+    assert "halt_reason" in columns
+    assert "cooldown_until" in columns
+    assert "halted_at" in columns
+
+
 def test_postgres_positions_user_scope_repairs_legacy_primary_key(monkeypatch):
     class _ScalarResult:
         def __init__(self, value):

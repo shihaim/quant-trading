@@ -63,7 +63,7 @@ class _RiskStub:
     def __init__(self):
         self.last_daily_pnl_pct: Decimal | None = None
 
-    def evaluate(self, signal: StrategySignal, config: RuntimeConfig, daily_pnl_pct: Decimal) -> RiskDecision:
+    def evaluate(self, signal: StrategySignal, config: RuntimeConfig, daily_pnl_pct: Decimal, **kwargs) -> RiskDecision:
         self.last_daily_pnl_pct = daily_pnl_pct
         return RiskDecision(halted=True, target_exposure_pct=Decimal("0"), reason="daily_loss_limit")
 

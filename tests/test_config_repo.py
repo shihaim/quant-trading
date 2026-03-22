@@ -111,6 +111,36 @@ def test_load_for_user_prefers_user_bot_config():
     assert cfg.daily_loss_basis == "REALIZED_ONLY"
 
 
+def test_load_for_user_reads_extended_risk_policy_fields():
+    session = _session()
+    session.add(BotConfig(id=1, timeframe="15m", markets_json='["KRW-BTC"]'))
+    session.add(User(email="u2@example.com", password_hash="hash"))
+    session.flush()
+    session.add(
+        UserBotConfig(
+            user_id=1,
+            timeframe="30m",
+            markets_json='["KRW-ETH"]',
+            max_weekly_loss_pct=0.03,
+            max_monthly_loss_pct=0.08,
+            cooldown_hours_on_halt=6,
+            max_new_orders_per_day=12,
+            max_orders_per_week=50,
+            min_edge_pct=0.0025,
+        )
+    )
+    session.commit()
+
+    cfg = ConfigRepo(session).load_for_user(1)
+
+    assert cfg.max_weekly_loss_pct == Decimal("0.03")
+    assert cfg.max_monthly_loss_pct == Decimal("0.08")
+    assert cfg.cooldown_hours_on_halt == 6
+    assert cfg.max_new_orders_per_day == 12
+    assert cfg.max_orders_per_week == 50
+    assert cfg.min_edge_pct == Decimal("0.0025")
+
+
 def test_runtime_state_defaults_and_set_enabled():
     session = _session()
     session.add(User(email="runtime@example.com", password_hash="hash"))

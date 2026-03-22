@@ -4,6 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -47,6 +48,12 @@ class RuntimeConfig:
     slippage_budget_exit_pct: Decimal = Decimal("0.0020")
     slippage_budget_breach_halt_count: int = 0
     status_notify_interval_seconds: int = 14400
+    max_weekly_loss_pct: Decimal = Decimal("0")
+    max_monthly_loss_pct: Decimal = Decimal("0")
+    cooldown_hours_on_halt: int = 0
+    max_new_orders_per_day: int = 0
+    max_orders_per_week: int = 0
+    min_edge_pct: Decimal = Decimal("0")
 
 
 @dataclass(frozen=True)
@@ -58,6 +65,9 @@ class RuntimeState:
     status: str
     consecutive_failures: int
     last_error: str | None
+    halt_reason: str | None = None
+    cooldown_until_utc: datetime | None = None
+    halted_at_utc: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -120,11 +130,20 @@ class ConfigRepo:
             status=str(row.status or "IDLE"),
             consecutive_failures=int(row.consecutive_failures or 0),
             last_error=row.last_error,
+            halt_reason=getattr(row, "halt_reason", None),
+            cooldown_until_utc=getattr(row, "cooldown_until", None),
+            halted_at_utc=getattr(row, "halted_at", None),
         )
 
     def set_runtime_enabled(self, *, user_id: int, enabled: bool) -> RuntimeState:
         row = self._get_or_create_runtime_row(user_id=max(1, int(user_id)))
         row.is_enabled = bool(enabled)
+        if enabled:
+            row.halt_reason = None
+            row.cooldown_until = None
+            row.halted_at = None
+            if str(row.status or "").upper() == "HALTED":
+                row.status = "IDLE"
         self.session.commit()
         self.session.refresh(row)
         return RuntimeState(
@@ -133,6 +152,9 @@ class ConfigRepo:
             status=str(row.status or "IDLE"),
             consecutive_failures=int(row.consecutive_failures or 0),
             last_error=row.last_error,
+            halt_reason=getattr(row, "halt_reason", None),
+            cooldown_until_utc=getattr(row, "cooldown_until", None),
+            halted_at_utc=getattr(row, "halted_at", None),
         )
 
     def get_risk_guard(self, user_id: int) -> RiskGuardState:
@@ -262,6 +284,42 @@ class ConfigRepo:
                 14400,
                 min_value=300,
                 max_value=86400,
+            ),
+            max_weekly_loss_pct=self._sanitize_decimal(
+                getattr(row, "max_weekly_loss_pct", None),
+                Decimal("0"),
+                min_value=Decimal("0"),
+                max_value=Decimal("1"),
+            ),
+            max_monthly_loss_pct=self._sanitize_decimal(
+                getattr(row, "max_monthly_loss_pct", None),
+                Decimal("0"),
+                min_value=Decimal("0"),
+                max_value=Decimal("1"),
+            ),
+            cooldown_hours_on_halt=self._sanitize_int(
+                getattr(row, "cooldown_hours_on_halt", None),
+                0,
+                min_value=0,
+                max_value=168,
+            ),
+            max_new_orders_per_day=self._sanitize_int(
+                getattr(row, "max_new_orders_per_day", None),
+                0,
+                min_value=0,
+                max_value=10000,
+            ),
+            max_orders_per_week=self._sanitize_int(
+                getattr(row, "max_orders_per_week", None),
+                0,
+                min_value=0,
+                max_value=70000,
+            ),
+            min_edge_pct=self._sanitize_decimal(
+                getattr(row, "min_edge_pct", None),
+                Decimal("0"),
+                min_value=Decimal("0"),
+                max_value=Decimal("1"),
             ),
         )
 

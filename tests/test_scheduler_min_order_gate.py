@@ -60,7 +60,7 @@ class _StrategyStub:
 
 
 class _RiskStub:
-    def evaluate(self, signal: StrategySignal, config: RuntimeConfig, daily_pnl_pct: Decimal) -> RiskDecision:
+    def evaluate(self, signal: StrategySignal, config: RuntimeConfig, daily_pnl_pct: Decimal, **kwargs) -> RiskDecision:
         return RiskDecision(halted=False, target_exposure_pct=Decimal("0.50"), reason="ok")
 
 

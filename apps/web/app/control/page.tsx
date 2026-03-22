@@ -115,9 +115,20 @@ export default function ControlPage() {
         <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
           <GuardrailCell label="Daily loss basis" value={status?.daily_loss_basis || "-"} />
           <GuardrailCell label="Max daily loss" value={asPct(status?.max_daily_loss_pct)} />
+          <GuardrailCell label="Max weekly loss" value={asPct(status?.max_weekly_loss_pct)} />
+          <GuardrailCell label="Max monthly loss" value={asPct(status?.max_monthly_loss_pct)} />
+          <GuardrailCell label="Cooldown on halt" value={`${status?.cooldown_hours_on_halt ?? 0}h`} />
+          <GuardrailCell
+            label="Order limits"
+            value={`${status?.max_new_orders_per_day ?? 0}/day · ${status?.max_orders_per_week ?? 0}/week`}
+          />
+          <GuardrailCell label="Min edge" value={asPct(status?.min_edge_pct)} />
           <GuardrailCell label="Target exposure" value={asPct(status?.target_exposure_pct)} />
           <GuardrailCell label="Max total exposure" value={asPct(status?.max_total_exposure_pct)} />
           <GuardrailCell label="Max per-market exposure" value={asPct(status?.max_per_market_exposure_pct)} />
+          <GuardrailCell label="Halt reason" value={status?.halt_reason || "-"} />
+          <GuardrailCell label="Halted at" value={asTime(status?.halted_at_kst || status?.halted_at_utc)} />
+          <GuardrailCell label="Cooldown until" value={asTime(status?.cooldown_until_kst || status?.cooldown_until_utc)} />
           <GuardrailCell label="Updated at" value={asTime(status?.updated_at_kst || status?.updated_at_utc)} />
           <GuardrailCell label="Status source" value={status?.source || "-"} />
           <GuardrailCell label="Mutation source" value={lastMutation?.source || "-"} />

@@ -123,12 +123,27 @@ class OpsService:
 
     def get_summary(self, metrics_limit: int = 200, needs_review_limit: int = 10) -> dict:
         now_utc = datetime.now(timezone.utc)
+        day_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start_utc = self._week_start_utc(now_utc)
+        month_start_utc = self._month_start_utc(now_utc)
         cfg = self.config_repo.load_for_user(self.owner_user_id)
         runtime_state = self.config_repo.get_runtime_state(self.owner_user_id)
         runtime_row = self.session.execute(
             select(UserBotRuntime).where(UserBotRuntime.user_id == self.owner_user_id)
         ).scalar_one_or_none()
         today = self._today_pnl_snapshot(cfg, now_utc.date())
+        weekly_loss_pct = self._period_loss_pct_for_user(
+            user_id=self.owner_user_id,
+            start_date=week_start_utc.date(),
+            end_date=now_utc.date(),
+        )
+        monthly_loss_pct = self._period_loss_pct_for_user(
+            user_id=self.owner_user_id,
+            start_date=month_start_utc.date(),
+            end_date=now_utc.date(),
+        )
+        new_orders_today = self._count_orders_since_for_user(user_id=self.owner_user_id, since=day_start_utc)
+        orders_this_week = self._count_orders_since_for_user(user_id=self.owner_user_id, since=week_start_utc)
         orders = self._orders_snapshot(needs_review_limit=needs_review_limit)
         execution = self._execution_quality_snapshot(cfg=cfg, now_utc=now_utc, limit=metrics_limit)
         daily_breach_count = self._count_breach_since(
@@ -142,6 +157,14 @@ class OpsService:
             today=today,
             daily_breach_count=daily_breach_count,
             runtime_updated_at=runtime_row.updated_at if runtime_row is not None else None,
+            now_utc=now_utc,
+            weekly_loss_pct=weekly_loss_pct,
+            monthly_loss_pct=monthly_loss_pct,
+            new_orders_today=new_orders_today,
+            orders_this_week=orders_this_week,
+            runtime_halt_reason=runtime_state.halt_reason,
+            runtime_cooldown_until=runtime_state.cooldown_until_utc,
+            runtime_halted_at=runtime_state.halted_at_utc,
         )
         last_tick = self._last_tick_utc()
         return {
@@ -160,6 +183,12 @@ class OpsService:
                 "markets": cfg.markets,
                 "daily_loss_basis": cfg.daily_loss_basis,
                 "max_daily_loss_pct": to_float(cfg.max_daily_loss_pct),
+                "max_weekly_loss_pct": to_float(cfg.max_weekly_loss_pct),
+                "max_monthly_loss_pct": to_float(cfg.max_monthly_loss_pct),
+                "cooldown_hours_on_halt": int(cfg.cooldown_hours_on_halt),
+                "max_new_orders_per_day": int(cfg.max_new_orders_per_day),
+                "max_orders_per_week": int(cfg.max_orders_per_week),
+                "min_edge_pct": to_float(cfg.min_edge_pct),
                 "target_exposure_pct": to_float(cfg.target_exposure_pct),
                 "max_total_exposure_pct": to_float(cfg.max_total_exposure_pct),
                 "max_per_market_exposure_pct": to_float(cfg.max_per_market_exposure_pct),
@@ -179,6 +208,12 @@ class OpsService:
                 "updated_at_utc": iso_utc(runtime_row.updated_at if runtime_row else None),
             },
             "today_pnl": today,
+            "risk_policy": {
+                "weekly_loss_pct": to_float(weekly_loss_pct),
+                "monthly_loss_pct": to_float(monthly_loss_pct),
+                "new_orders_today": int(new_orders_today),
+                "orders_this_week": int(orders_this_week),
+            },
             "orders": orders,
             "execution_quality": execution,
         }
@@ -196,6 +231,8 @@ class OpsService:
         now_utc = datetime.now(timezone.utc)
         today_utc = now_utc.date()
         day_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start_utc = self._week_start_utc(now_utc)
+        month_start_utc = self._month_start_utc(now_utc)
 
         users = (
             self.session.execute(
@@ -297,6 +334,18 @@ class OpsService:
             runtime_last_tick_at = ensure_utc(getattr(runtime_row, "last_tick_at", None))
 
             today = self._today_pnl_snapshot(cfg, today_utc)
+            weekly_loss_pct = self._period_loss_pct_for_user(
+                user_id=user_id,
+                start_date=week_start_utc.date(),
+                end_date=today_utc,
+            )
+            monthly_loss_pct = self._period_loss_pct_for_user(
+                user_id=user_id,
+                start_date=month_start_utc.date(),
+                end_date=today_utc,
+            )
+            new_orders_today = self._count_orders_since_for_user(user_id=user_id, since=day_start_utc)
+            orders_this_week = self._count_orders_since_for_user(user_id=user_id, since=week_start_utc)
             daily_breach_count = self._count_breach_since_for_user(
                 user_id=user_id,
                 since=day_start_utc,
@@ -309,6 +358,14 @@ class OpsService:
                 today=today,
                 daily_breach_count=daily_breach_count,
                 runtime_updated_at=runtime_updated_at,
+                now_utc=now_utc,
+                weekly_loss_pct=weekly_loss_pct,
+                monthly_loss_pct=monthly_loss_pct,
+                new_orders_today=new_orders_today,
+                orders_this_week=orders_this_week,
+                runtime_halt_reason=getattr(runtime_row, "halt_reason", None),
+                runtime_cooldown_until=ensure_utc(getattr(runtime_row, "cooldown_until", None)),
+                runtime_halted_at=ensure_utc(getattr(runtime_row, "halted_at", None)),
             )
 
             guard_is_halted = bool(getattr(guard_row, "manual_halt", False) or getattr(guard_row, "emergency_kill_switch", False))
@@ -319,6 +376,7 @@ class OpsService:
                     "is_halted": True,
                     "reason": guard_reason,
                     "triggered_at_utc": iso_utc(ensure_utc(getattr(guard_row, "updated_at", None)) or runtime_updated_at),
+                    "cooldown_until_utc": halt.get("cooldown_until_utc"),
                     "message": str(getattr(guard_row, "reason", "") or guard_reason),
                 }
 
@@ -363,6 +421,10 @@ class OpsService:
                     "today_pnl": {
                         "daily_pnl_pct": today["daily_pnl_pct"],
                         "halt_threshold_pct": today["halt_threshold_pct"],
+                        "weekly_loss_pct": to_float(weekly_loss_pct),
+                        "monthly_loss_pct": to_float(monthly_loss_pct),
+                        "new_orders_today": int(new_orders_today),
+                        "orders_this_week": int(orders_this_week),
                     },
                     "activity": {
                         "recent_order_at_utc": iso_utc(recent_order_at),
@@ -384,6 +446,46 @@ class OpsService:
             "count": len(items),
             "items": items,
         }
+
+    @staticmethod
+    def _week_start_utc(now_utc: datetime) -> datetime:
+        day_start = now_utc.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        return day_start - timedelta(days=day_start.weekday())
+
+    @staticmethod
+    def _month_start_utc(now_utc: datetime) -> datetime:
+        return now_utc.astimezone(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    def _count_orders_since_for_user(self, *, user_id: int, since: datetime) -> int:
+        result = self.session.scalar(
+            select(func.count()).select_from(Order).where(
+                Order.user_id == max(1, int(user_id)),
+                Order.created_at >= since,
+            )
+        )
+        return int(result or 0)
+
+    def _period_loss_pct_for_user(self, *, user_id: int, start_date: date, end_date: date) -> Decimal:
+        rows = (
+            self.session.execute(
+                select(DailyEquity)
+                .where(
+                    DailyEquity.user_id == max(1, int(user_id)),
+                    DailyEquity.date_utc >= start_date,
+                    DailyEquity.date_utc <= end_date,
+                )
+                .order_by(DailyEquity.date_utc.asc())
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            return Decimal("0")
+        start_equity = to_decimal(rows[0].start_equity)
+        if start_equity <= 0:
+            return Decimal("0")
+        total_abs = sum((to_decimal(row.daily_pnl_abs) for row in rows), Decimal("0"))
+        return total_abs / start_equity
 
     def _today_pnl_snapshot(self, cfg: RuntimeConfig, today_utc: date) -> dict:
         row = self.session.get(DailyEquity, (self.owner_user_id, today_utc))
@@ -601,23 +703,60 @@ class OpsService:
         today: dict,
         daily_breach_count: int,
         runtime_updated_at: datetime | None,
+        now_utc: datetime,
+        weekly_loss_pct: Decimal,
+        monthly_loss_pct: Decimal,
+        new_orders_today: int,
+        orders_this_week: int,
+        runtime_halt_reason: str | None,
+        runtime_cooldown_until: datetime | None,
+        runtime_halted_at: datetime | None,
     ) -> tuple[str, dict]:
-        halt_reason: str | None = None
+        halt_reason: str | None = str(runtime_halt_reason or "").strip() or None
         effective_enabled = bool(runtime_enabled) and bool(cfg.is_enabled)
-        if not effective_enabled:
+        cooldown_until = ensure_utc(runtime_cooldown_until)
+        if cooldown_until is not None and now_utc < cooldown_until and halt_reason is None:
+            halt_reason = "cooldown_active"
+        if not effective_enabled and halt_reason is None:
             if today["daily_pnl_pct"] <= today["halt_threshold_pct"]:
                 halt_reason = "daily_loss_limit"
+            elif cfg.max_weekly_loss_pct > 0 and weekly_loss_pct <= -abs(to_decimal(cfg.max_weekly_loss_pct)):
+                halt_reason = "weekly_loss_limit"
+            elif cfg.max_monthly_loss_pct > 0 and monthly_loss_pct <= -abs(to_decimal(cfg.max_monthly_loss_pct)):
+                halt_reason = "monthly_loss_limit"
+            elif cfg.max_new_orders_per_day > 0 and int(new_orders_today) >= int(cfg.max_new_orders_per_day):
+                halt_reason = "new_orders_daily_limit"
+            elif cfg.max_orders_per_week > 0 and int(orders_this_week) >= int(cfg.max_orders_per_week):
+                halt_reason = "orders_weekly_limit"
             elif cfg.slippage_budget_breach_halt_count > 0 and daily_breach_count >= cfg.slippage_budget_breach_halt_count:
                 halt_reason = "auto_halt_by_slippage"
 
-        status = "RUNNING"
-        if not effective_enabled:
-            status = "HALTED" if halt_reason else "DISABLED"
+        status = "HALTED" if halt_reason else ("RUNNING" if effective_enabled else "DISABLED")
+        triggered_at = runtime_halted_at or runtime_updated_at
+        message = None
+        if halt_reason is not None:
+            if halt_reason == "cooldown_active":
+                message = "bot start is blocked during cooldown window"
+            elif halt_reason == "daily_loss_limit":
+                message = "bot disabled by daily loss guard"
+            elif halt_reason == "weekly_loss_limit":
+                message = "bot disabled by weekly loss guard"
+            elif halt_reason == "monthly_loss_limit":
+                message = "bot disabled by monthly loss guard"
+            elif halt_reason == "new_orders_daily_limit":
+                message = "bot disabled by daily new-order limit"
+            elif halt_reason == "orders_weekly_limit":
+                message = "bot disabled by weekly order-count limit"
+            elif halt_reason == "auto_halt_by_slippage":
+                message = "bot disabled by slippage budget guardrail"
+            else:
+                message = "bot disabled by risk guardrail"
         halt = {
             "is_halted": status == "HALTED",
             "reason": halt_reason,
-            "triggered_at_utc": iso_utc(runtime_updated_at),
-            "message": "bot disabled by risk guardrail" if halt_reason else None,
+            "triggered_at_utc": iso_utc(triggered_at),
+            "cooldown_until_utc": iso_utc(cooldown_until),
+            "message": message,
         }
         return status, halt
 

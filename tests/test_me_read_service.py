@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -9,8 +10,8 @@ from trader.auth.credentials import UserCredentialService
 from trader.auth.service import AuthService
 from trader.config.config_repo import ConfigRepo
 from trader.data.db import Base
-from trader.data.models import DailyEquity, Order, TradeMetric
-from trader.me.read_service import MeReadService
+from trader.data.models import DailyEquity, Order, TradeMetric, UserBotRuntime
+from trader.me.read_service import MeReadService, UserScopeError
 
 
 def _session():
@@ -163,3 +164,34 @@ def test_me_bot_stop_isolated_per_user_runtime():
     assert stop_a["is_enabled"] is False
     assert state_a.is_enabled is False
     assert state_b.is_enabled is True
+
+
+def test_me_bot_start_blocks_during_cooldown():
+    session = _session()
+    user = AuthService(session).signup(email="cooldown@example.com", password="strong-pass-123")
+    UserCredentialService(session, encryption_key="me-read-key").set_exchange_credentials(
+        user=user,
+        exchange="UPBIT",
+        access_key="access-key-cooldown-123",
+        secret_key="secret-key-cooldown-1234567890",
+    )
+    runtime = session.execute(
+        select(UserBotRuntime).where(UserBotRuntime.user_id == user.id)
+    ).scalar_one_or_none()
+    if runtime is None:
+        runtime = UserBotRuntime(user_id=user.id)
+        session.add(runtime)
+        session.flush()
+    runtime.is_enabled = False
+    runtime.status = "HALTED"
+    runtime.halt_reason = "daily_loss_limit"
+    runtime.cooldown_until = datetime.now(timezone.utc) + timedelta(hours=2)
+    runtime.halted_at = datetime.now(timezone.utc)
+    session.commit()
+
+    service = MeReadService(session=session, trade_mode="PAPER", encryption_key="me-read-key")
+    try:
+        service.start_bot(user=user)
+        assert False, "expected cooldown_active"
+    except UserScopeError as exc:
+        assert exc.code == "cooldown_active"

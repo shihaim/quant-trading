@@ -4,7 +4,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR
 from typing import Callable
 
@@ -12,10 +12,10 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from trader.auth.credentials import CredentialValidationError, UserCredentialService
-from trader.config.config_repo import ConfigRepo, RuntimeConfig
+from trader.config.config_repo import ConfigRepo, RuntimeConfig, RuntimeState
 from trader.config.settings import settings
 from trader.data.candle_service import CandleService
-from trader.data.models import Order, User, UserBotRuntime, UserExchangeCredential, UserRiskGuard
+from trader.data.models import DailyEquity, Order, User, UserBotRuntime, UserExchangeCredential, UserRiskGuard
 from trader.exchange.upbit_client import UpbitClient
 from trader.notify.telegram import TelegramNotifier
 from trader.trading.execution import ExecutionEngine
@@ -182,6 +182,92 @@ class TradingScheduler:
                 )
         return price_adj * volume_adj, price_adj, volume_adj
 
+    @staticmethod
+    def _week_start_utc(now: datetime) -> datetime:
+        normalized = now.astimezone(timezone.utc)
+        day_start = normalized.replace(hour=0, minute=0, second=0, microsecond=0)
+        return day_start - timedelta(days=day_start.weekday())
+
+    @staticmethod
+    def _month_start_utc(now: datetime) -> datetime:
+        normalized = now.astimezone(timezone.utc)
+        return normalized.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    def _period_loss_pct(self, *, start_date: date, end_date: date) -> Decimal:
+        if getattr(self, "session", None) is None:
+            return Decimal("0")
+        rows = (
+            self.session.execute(
+                select(DailyEquity)
+                .where(
+                    DailyEquity.user_id == self.user_id,
+                    DailyEquity.date_utc >= start_date,
+                    DailyEquity.date_utc <= end_date,
+                )
+                .order_by(DailyEquity.date_utc.asc())
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            return Decimal("0")
+        start_equity = Decimal(str(rows[0].start_equity or 0))
+        if start_equity <= 0:
+            return Decimal("0")
+        total_abs = sum((Decimal(str(row.daily_pnl_abs or 0)) for row in rows), Decimal("0"))
+        return total_abs / start_equity
+
+    def _count_orders_since(self, *, since: datetime) -> int:
+        if getattr(self, "session", None) is None:
+            return 0
+        result = self.session.scalar(
+            select(func.count()).select_from(Order).where(
+                Order.user_id == self.user_id,
+                Order.created_at >= since,
+            )
+        )
+        return int(result or 0)
+
+    @staticmethod
+    def _estimate_signal_edge_pct(*, candles: list) -> Decimal:
+        if len(candles) < 2:
+            return Decimal("0")
+        prev_close = Decimal(str(candles[-2].close))
+        last_close = Decimal(str(candles[-1].close))
+        if prev_close <= 0:
+            return Decimal("0")
+        return abs(last_close - prev_close) / prev_close
+
+    def _apply_policy_halt(self, *, cfg: RuntimeConfig, reason: str, now: datetime) -> None:
+        if getattr(self, "session", None) is None:
+            return
+        try:
+            row = self.session.execute(
+                select(UserBotRuntime).where(UserBotRuntime.user_id == self.user_id)
+            ).scalar_one_or_none()
+            if row is None:
+                row = UserBotRuntime(user_id=self.user_id)
+                self.session.add(row)
+                self.session.flush()
+            cooldown_hours = max(0, int(getattr(cfg, "cooldown_hours_on_halt", 0) or 0))
+            cooldown_until = now + timedelta(hours=cooldown_hours) if cooldown_hours > 0 else None
+            row.is_enabled = False
+            row.status = "HALTED"
+            row.last_error = f"risk_policy:{reason}"
+            row.halt_reason = reason
+            row.cooldown_until = cooldown_until
+            row.halted_at = now
+            self.session.add(row)
+            self.session.commit()
+            logger.warning(
+                "scheduler_runtime_halted user_id=%s reason=%s cooldown_until=%s",
+                self.user_id,
+                reason,
+                cooldown_until.isoformat() if cooldown_until is not None else None,
+            )
+        except Exception:
+            logger.exception("scheduler_runtime_halt_update_failed user_id=%s reason=%s", self.user_id, reason)
+
     def _run_once(self, cfg: RuntimeConfig) -> None:
         logger.info(
             "scheduler_run_once start timeframe=%s markets=%s daily_loss_basis=%s",
@@ -264,17 +350,46 @@ class TradingScheduler:
             daily_snapshot.unrealized_pnl,
         )
 
+        now_utc = datetime.now(timezone.utc)
+        day_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start_utc = self._week_start_utc(now_utc)
+        month_start_utc = self._month_start_utc(now_utc)
+        new_orders_today = self._count_orders_since(since=day_start_utc)
+        orders_this_week = self._count_orders_since(since=week_start_utc)
+        weekly_loss_pct = self._period_loss_pct(start_date=week_start_utc.date(), end_date=now_utc.date())
+        monthly_loss_pct = self._period_loss_pct(start_date=month_start_utc.date(), end_date=now_utc.date())
+
         for market in cfg.markets:
             candles = market_to_candles.get(market, [])
             if not candles:
                 continue
             position = self.portfolio.get_position(market, user_id=self.user_id)
             signal = self.strategy.evaluate(candles, position)
-            decision = self.risk.evaluate(signal=signal, config=cfg, daily_pnl_pct=daily_pnl_pct)
+            signal_edge_pct = self._estimate_signal_edge_pct(candles=candles)
+            if signal.action == "BUY" and cfg.min_edge_pct > 0 and signal_edge_pct < cfg.min_edge_pct:
+                logger.info(
+                    "scheduler_order_skipped market=%s reason=min_edge_filter signal_edge_pct=%s min_edge_pct=%s",
+                    market,
+                    signal_edge_pct,
+                    cfg.min_edge_pct,
+                )
+                continue
+            decision = self.risk.evaluate(
+                signal=signal,
+                config=cfg,
+                daily_pnl_pct=daily_pnl_pct,
+                weekly_pnl_pct=weekly_loss_pct,
+                monthly_pnl_pct=monthly_loss_pct,
+                new_orders_today=new_orders_today,
+                orders_this_week=orders_this_week,
+            )
             if decision.halted:
                 self.notifier.send(f"HALT {market}: {decision.reason}")
                 logger.warning("scheduler_halt market=%s reason=%s", market, decision.reason)
-                continue
+                self._apply_policy_halt(cfg=cfg, reason=decision.reason, now=now_utc)
+                self._last_success_loop_at = datetime.now(timezone.utc)
+                logger.info("scheduler_run_once done timeframe=%s halted_reason=%s", cfg.timeframe, decision.reason)
+                return
 
             close_price = Decimal(candles[-1].close)
             target_notional = total_equity * decision.target_exposure_pct
@@ -357,6 +472,8 @@ class TradingScheduler:
             if not order:
                 logger.info("scheduler_order_skipped market=%s reason=no_delta", market)
                 continue
+            new_orders_today += 1
+            orders_this_week += 1
 
             self.execution.sync_order(order)
             applied = self.portfolio.apply_unapplied_fills(
@@ -629,6 +746,13 @@ class MultiUserTradingScheduler:
         finally:
             session.close()
 
+    def _load_runtime_state(self, user_id: int) -> RuntimeState:
+        session = self.session_factory()
+        try:
+            return ConfigRepo(session).get_runtime_state(user_id)
+        finally:
+            session.close()
+
     def _load_user_credentials(self, user_id: int) -> tuple[str, str]:
         session = self.session_factory()
         try:
@@ -749,6 +873,17 @@ class MultiUserTradingScheduler:
                 notifier=self.notifier,
             )
             worker._run_once(cfg)
+            runtime_after = self._load_runtime_state(user_id)
+            if (not runtime_after.is_enabled) and (
+                str(runtime_after.status or "").upper() == "HALTED" or bool(runtime_after.halt_reason)
+            ):
+                logger.info(
+                    "multi_user_scheduler_runtime_halted user_id=%s reason=%s cooldown_until=%s",
+                    user_id,
+                    runtime_after.halt_reason,
+                    runtime_after.cooldown_until_utc.isoformat() if runtime_after.cooldown_until_utc else None,
+                )
+                return
             self._update_runtime(
                 user_id=user_id,
                 status="IDLE",

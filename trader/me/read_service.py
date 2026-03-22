@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -79,8 +81,19 @@ class MeReadService:
             "mode": self.trade_mode,
             "status": runtime.status,
             "is_enabled": bool(runtime.is_enabled),
+            "halt_reason": runtime.halt_reason,
+            "halted_at_utc": iso_utc(runtime.halted_at_utc),
+            "halted_at_kst": iso_kst(runtime.halted_at_utc),
+            "cooldown_until_utc": iso_utc(runtime.cooldown_until_utc),
+            "cooldown_until_kst": iso_kst(runtime.cooldown_until_utc),
             "daily_loss_basis": cfg.daily_loss_basis,
             "max_daily_loss_pct": float(cfg.max_daily_loss_pct),
+            "max_weekly_loss_pct": float(cfg.max_weekly_loss_pct),
+            "max_monthly_loss_pct": float(cfg.max_monthly_loss_pct),
+            "cooldown_hours_on_halt": int(cfg.cooldown_hours_on_halt),
+            "max_new_orders_per_day": int(cfg.max_new_orders_per_day),
+            "max_orders_per_week": int(cfg.max_orders_per_week),
+            "min_edge_pct": float(cfg.min_edge_pct),
             "target_exposure_pct": float(cfg.target_exposure_pct),
             "max_total_exposure_pct": float(cfg.max_total_exposure_pct),
             "max_per_market_exposure_pct": float(cfg.max_per_market_exposure_pct),
@@ -91,6 +104,13 @@ class MeReadService:
 
     def start_bot(self, *, user: User) -> dict:
         self._assert_user_credential_ready(user=user)
+        runtime_before = self.config_repo.get_runtime_state(user.id)
+        now_utc = datetime.now(timezone.utc)
+        if runtime_before.cooldown_until_utc is not None and runtime_before.cooldown_until_utc > now_utc:
+            raise UserScopeError(
+                "cooldown_active",
+                f"cooldown_active_until:{iso_utc(runtime_before.cooldown_until_utc)}",
+            )
         runtime = self.config_repo.set_runtime_enabled(user_id=user.id, enabled=True)
         runtime_row = self.session.execute(
             select(UserBotRuntime).where(UserBotRuntime.user_id == user.id)
@@ -99,6 +119,9 @@ class MeReadService:
         return {
             "is_enabled": bool(runtime.is_enabled),
             "status": runtime.status,
+            "halt_reason": runtime.halt_reason,
+            "cooldown_until_utc": iso_utc(runtime.cooldown_until_utc),
+            "cooldown_until_kst": iso_kst(runtime.cooldown_until_utc),
             "updated_at_utc": iso_utc(updated_at),
             "updated_at_kst": iso_kst(updated_at),
             "source": "/api/me/bot/start",
@@ -114,6 +137,9 @@ class MeReadService:
         return {
             "is_enabled": bool(runtime.is_enabled),
             "status": runtime.status,
+            "halt_reason": runtime.halt_reason,
+            "cooldown_until_utc": iso_utc(runtime.cooldown_until_utc),
+            "cooldown_until_kst": iso_kst(runtime.cooldown_until_utc),
             "updated_at_utc": iso_utc(updated_at),
             "updated_at_kst": iso_kst(updated_at),
             "source": "/api/me/bot/stop",

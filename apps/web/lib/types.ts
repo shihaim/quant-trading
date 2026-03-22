@@ -12,6 +12,7 @@ export interface OpsSummary {
     is_halted: boolean;
     reason: string | null;
     triggered_at_utc: string | null;
+    cooldown_until_utc: string | null;
     message: string | null;
   };
   config: {
@@ -19,6 +20,12 @@ export interface OpsSummary {
     markets: string[];
     daily_loss_basis: string;
     max_daily_loss_pct: number;
+    max_weekly_loss_pct: number;
+    max_monthly_loss_pct: number;
+    cooldown_hours_on_halt: number;
+    max_new_orders_per_day: number;
+    max_orders_per_week: number;
+    min_edge_pct: number;
     target_exposure_pct: number;
     max_total_exposure_pct: number;
     max_per_market_exposure_pct: number;
@@ -36,6 +43,12 @@ export interface OpsSummary {
     slippage_budget_breach_halt_count: number;
     status_notify_interval_seconds: number;
     updated_at_utc: string | null;
+  };
+  risk_policy: {
+    weekly_loss_pct: number;
+    monthly_loss_pct: number;
+    new_orders_today: number;
+    orders_this_week: number;
   };
   today_pnl: {
     date_utc: string;
@@ -118,6 +131,7 @@ export interface AdminRuntimeSummaryItem {
     is_halted: boolean;
     reason: string | null;
     triggered_at_utc: string | null;
+    cooldown_until_utc: string | null;
     message: string | null;
   };
   budget: {
@@ -134,6 +148,10 @@ export interface AdminRuntimeSummaryItem {
   today_pnl: {
     daily_pnl_pct: number;
     halt_threshold_pct: number;
+    weekly_loss_pct: number;
+    monthly_loss_pct: number;
+    new_orders_today: number;
+    orders_this_week: number;
   };
   activity: {
     recent_order_at_utc: string | null;
@@ -314,8 +332,19 @@ export interface MeBotStatusResponse {
   mode: string;
   status: string;
   is_enabled: boolean;
+  halt_reason: string | null;
+  halted_at_utc: string | null;
+  halted_at_kst: string | null;
+  cooldown_until_utc: string | null;
+  cooldown_until_kst: string | null;
   daily_loss_basis: string;
   max_daily_loss_pct: number;
+  max_weekly_loss_pct: number;
+  max_monthly_loss_pct: number;
+  cooldown_hours_on_halt: number;
+  max_new_orders_per_day: number;
+  max_orders_per_week: number;
+  min_edge_pct: number;
   target_exposure_pct: number;
   max_total_exposure_pct: number;
   max_per_market_exposure_pct: number;
@@ -327,6 +356,9 @@ export interface MeBotStatusResponse {
 export interface MeBotMutateResponse {
   is_enabled: boolean;
   status?: string;
+  halt_reason?: string | null;
+  cooldown_until_utc?: string | null;
+  cooldown_until_kst?: string | null;
   updated_at_utc: string | null;
   updated_at_kst: string | null;
   source: string;

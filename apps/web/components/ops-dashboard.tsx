@@ -43,6 +43,16 @@ function toHaltReasonLabel(reason: string | null | undefined, text: DashboardTex
   switch (reason) {
     case "daily_loss_limit":
       return text.haltDailyLoss;
+    case "weekly_loss_limit":
+      return "WEEKLY_LOSS";
+    case "monthly_loss_limit":
+      return "MONTHLY_LOSS";
+    case "new_orders_daily_limit":
+      return "DAILY_ORDER_LIMIT";
+    case "orders_weekly_limit":
+      return "WEEKLY_ORDER_LIMIT";
+    case "cooldown_active":
+      return "COOLDOWN";
     case "auto_halt_by_slippage":
       return text.haltSlippage;
     default:
@@ -84,6 +94,18 @@ function toHaltThresholdLabel(summary: OpsSummary | null, text: DashboardText, l
       summary.config.slippage_budget_exit_pct,
       locale
     )} / HALT ${asInt(summary.config.slippage_budget_breach_halt_count, locale)}`;
+  }
+  if (summary.halt.reason === "weekly_loss_limit") {
+    return asPct(summary.config.max_weekly_loss_pct, locale);
+  }
+  if (summary.halt.reason === "monthly_loss_limit") {
+    return asPct(summary.config.max_monthly_loss_pct, locale);
+  }
+  if (summary.halt.reason === "new_orders_daily_limit") {
+    return `${asInt(summary.risk_policy.new_orders_today, locale)} / ${asInt(summary.config.max_new_orders_per_day, locale)}`;
+  }
+  if (summary.halt.reason === "orders_weekly_limit") {
+    return `${asInt(summary.risk_policy.orders_this_week, locale)} / ${asInt(summary.config.max_orders_per_week, locale)}`;
   }
   const threshold = Math.abs(summary.today_pnl.halt_threshold_pct || 0);
   return threshold > 0 ? asPct(threshold, locale) : "-";
@@ -432,6 +454,20 @@ export function OpsDashboard({
             label={text.dailyLossLimit}
             value={`${summary?.config.daily_loss_basis || "-"} / ${asPct(summary?.config.max_daily_loss_pct, intlLocale)}`}
           />
+          <KpiCell label="Weekly loss limit" value={asPct(summary?.config.max_weekly_loss_pct, intlLocale)} />
+          <KpiCell label="Monthly loss limit" value={asPct(summary?.config.max_monthly_loss_pct, intlLocale)} />
+          <KpiCell label="Cooldown on halt" value={`${asInt(summary?.config.cooldown_hours_on_halt, intlLocale)}h`} />
+          <KpiCell
+            label="Order limits"
+            value={`${asInt(summary?.risk_policy.new_orders_today, intlLocale)} / ${asInt(
+              summary?.config.max_new_orders_per_day,
+              intlLocale
+            )} day, ${asInt(summary?.risk_policy.orders_this_week, intlLocale)} / ${asInt(
+              summary?.config.max_orders_per_week,
+              intlLocale
+            )} week`}
+          />
+          <KpiCell label="Min edge" value={asPct(summary?.config.min_edge_pct, intlLocale)} />
           <KpiCell label={text.targetExposure} value={asPct(summary?.config.target_exposure_pct, intlLocale)} />
           <KpiCell label={text.maxTotalExposure} value={asPct(summary?.config.max_total_exposure_pct, intlLocale)} />
           <KpiCell label={text.maxPerMarket} value={asPct(summary?.config.max_per_market_exposure_pct, intlLocale)} />

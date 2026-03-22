@@ -118,6 +118,12 @@ COLUMN_DOCS_EN = {
         "slippage_budget_breach_halt_count": "Auto-halt when breaches reach this count.",
         "status_notify_interval_seconds": "Periodic status notification interval.",
         "max_daily_loss_pct": "Daily loss halt threshold ratio.",
+        "max_weekly_loss_pct": "Weekly loss halt threshold ratio.",
+        "max_monthly_loss_pct": "Monthly loss halt threshold ratio.",
+        "cooldown_hours_on_halt": "Cooldown duration in hours after policy halt.",
+        "max_new_orders_per_day": "Maximum number of new orders allowed per UTC day.",
+        "max_orders_per_week": "Maximum number of orders allowed per UTC week.",
+        "min_edge_pct": "Minimum edge ratio required for BUY-side exposure increase.",
         "max_total_exposure_pct": "Maximum total exposure ratio.",
         "max_per_market_exposure_pct": "Maximum exposure ratio per market.",
         "updated_at": "Last update timestamp.",
@@ -318,6 +324,12 @@ COLUMN_DOCS_KO = {
         "slippage_budget_breach_halt_count": "예산 위반 횟수가 이 값에 도달하면 자동 중지.",
         "status_notify_interval_seconds": "주기 상태 알림 간격(초).",
         "max_daily_loss_pct": "일일 손실 중지 임계 비율.",
+        "max_weekly_loss_pct": "주간 손실 중지 임계 비율.",
+        "max_monthly_loss_pct": "월간 손실 중지 임계 비율.",
+        "cooldown_hours_on_halt": "정책 중지 후 재진입 제한 쿨다운 시간(시).",
+        "max_new_orders_per_day": "UTC 일자 기준 신규 주문 허용 최대 건수.",
+        "max_orders_per_week": "UTC 주차 기준 주문 허용 최대 건수.",
+        "min_edge_pct": "BUY 노출 확대 전 요구되는 최소 엣지 비율.",
         "max_total_exposure_pct": "총 노출 최대 비율.",
         "max_per_market_exposure_pct": "마켓별 노출 최대 비율.",
         "updated_at": "마지막 수정 시각.",
@@ -450,6 +462,12 @@ SQLITE_KST_VIEW_SQL = {
             slippage_budget_breach_halt_count,
             status_notify_interval_seconds,
             max_daily_loss_pct,
+            max_weekly_loss_pct,
+            max_monthly_loss_pct,
+            cooldown_hours_on_halt,
+            max_new_orders_per_day,
+            max_orders_per_week,
+            min_edge_pct,
             max_total_exposure_pct,
             max_per_market_exposure_pct,
             datetime(updated_at, '+9 hours') AS updated_at_kst
@@ -647,6 +665,12 @@ POSTGRES_KST_VIEW_SQL = {
             slippage_budget_breach_halt_count,
             status_notify_interval_seconds,
             max_daily_loss_pct,
+            max_weekly_loss_pct,
+            max_monthly_loss_pct,
+            cooldown_hours_on_halt,
+            max_new_orders_per_day,
+            max_orders_per_week,
+            min_edge_pct,
             max_total_exposure_pct,
             max_per_market_exposure_pct,
             updated_at AT TIME ZONE 'Asia/Seoul' AS updated_at_kst
@@ -1128,6 +1152,12 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                     slippage_budget_breach_halt_count,
                     status_notify_interval_seconds,
                     max_daily_loss_pct,
+                    max_weekly_loss_pct,
+                    max_monthly_loss_pct,
+                    cooldown_hours_on_halt,
+                    max_new_orders_per_day,
+                    max_orders_per_week,
+                    min_edge_pct,
                     max_total_exposure_pct,
                     max_per_market_exposure_pct,
                     created_at,
@@ -1154,6 +1184,12 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                     b.slippage_budget_breach_halt_count,
                     b.status_notify_interval_seconds,
                     b.max_daily_loss_pct,
+                    b.max_weekly_loss_pct,
+                    b.max_monthly_loss_pct,
+                    b.cooldown_hours_on_halt,
+                    b.max_new_orders_per_day,
+                    b.max_orders_per_week,
+                    b.min_edge_pct,
                     b.max_total_exposure_pct,
                     b.max_per_market_exposure_pct,
                     COALESCE(b.updated_at, CURRENT_TIMESTAMP),
@@ -1179,6 +1215,9 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                     is_enabled,
                     status,
                     consecutive_failures,
+                    halt_reason,
+                    cooldown_until,
+                    halted_at,
                     created_at,
                     updated_at
                 )
@@ -1187,6 +1226,9 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                     COALESCE((SELECT ubc.is_enabled FROM user_bot_config ubc WHERE ubc.user_id = :owner_user_id), 1),
                     'IDLE',
                     0,
+                    NULL,
+                    NULL,
+                    NULL,
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP
                 WHERE NOT EXISTS (
@@ -1220,6 +1262,97 @@ def _ensure_users_token_version(conn) -> None:
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_token_version ON users(token_version)"))
 
 
+def _ensure_s7_policy_columns(conn) -> None:
+    inspector = inspect(conn)
+    table_names = set(inspector.get_table_names())
+
+    policy_columns = [
+        ("max_weekly_loss_pct", "NUMERIC(10,6) DEFAULT 0"),
+        ("max_monthly_loss_pct", "NUMERIC(10,6) DEFAULT 0"),
+        ("cooldown_hours_on_halt", "INTEGER DEFAULT 0"),
+        ("max_new_orders_per_day", "INTEGER DEFAULT 0"),
+        ("max_orders_per_week", "INTEGER DEFAULT 0"),
+        ("min_edge_pct", "NUMERIC(10,6) DEFAULT 0"),
+    ]
+
+    for table_name in ("bot_config", "user_bot_config"):
+        if table_name not in table_names:
+            continue
+        existing = {col["name"] for col in inspector.get_columns(table_name)}
+        for col_name, ddl in policy_columns:
+            if col_name not in existing:
+                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {ddl}"))
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table_name}
+                SET max_weekly_loss_pct = 0
+                WHERE max_weekly_loss_pct IS NULL OR max_weekly_loss_pct < 0
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table_name}
+                SET max_monthly_loss_pct = 0
+                WHERE max_monthly_loss_pct IS NULL OR max_monthly_loss_pct < 0
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table_name}
+                SET cooldown_hours_on_halt = 0
+                WHERE cooldown_hours_on_halt IS NULL OR cooldown_hours_on_halt < 0
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table_name}
+                SET max_new_orders_per_day = 0
+                WHERE max_new_orders_per_day IS NULL OR max_new_orders_per_day < 0
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table_name}
+                SET max_orders_per_week = 0
+                WHERE max_orders_per_week IS NULL OR max_orders_per_week < 0
+                """
+            )
+        )
+        conn.execute(
+            text(
+                f"""
+                UPDATE {table_name}
+                SET min_edge_pct = 0
+                WHERE min_edge_pct IS NULL OR min_edge_pct < 0
+                """
+            )
+        )
+
+    if "user_bot_runtime" not in table_names:
+        return
+
+    existing_runtime = {col["name"] for col in inspector.get_columns("user_bot_runtime")}
+    dt_type = "TIMESTAMP WITH TIME ZONE" if conn.dialect.name == "postgresql" else "DATETIME"
+    runtime_columns = [
+        ("halt_reason", "VARCHAR(64)"),
+        ("cooldown_until", dt_type),
+        ("halted_at", dt_type),
+    ]
+    for col_name, ddl in runtime_columns:
+        if col_name not in existing_runtime:
+            conn.execute(text(f"ALTER TABLE user_bot_runtime ADD COLUMN {col_name} {ddl}"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_bot_runtime_halt_reason ON user_bot_runtime(halt_reason)"))
+
+
 def run_lightweight_migrations() -> None:
     """Apply lightweight bootstrap migrations without alembic."""
     with engine.begin() as conn:
@@ -1228,6 +1361,8 @@ def run_lightweight_migrations() -> None:
             owner_user_id = _resolve_legacy_owner_user_id(conn)
             _postgres_ensure_positions_user_scope(conn, owner_user_id=owner_user_id)
             _postgres_ensure_daily_equity_user_scope(conn, owner_user_id=owner_user_id)
+            _ensure_s7_policy_columns(conn)
+            _seed_user_bot_scope(conn, owner_user_id=owner_user_id)
             return
 
         if not _is_sqlite_bind(conn):
@@ -1362,6 +1497,12 @@ def run_lightweight_migrations() -> None:
                 ("slippage_budget_exit_pct", "NUMERIC(10,6) DEFAULT 0.0020"),
                 ("slippage_budget_breach_halt_count", "INTEGER DEFAULT 0"),
                 ("status_notify_interval_seconds", "INTEGER DEFAULT 14400"),
+                ("max_weekly_loss_pct", "NUMERIC(10,6) DEFAULT 0"),
+                ("max_monthly_loss_pct", "NUMERIC(10,6) DEFAULT 0"),
+                ("cooldown_hours_on_halt", "INTEGER DEFAULT 0"),
+                ("max_new_orders_per_day", "INTEGER DEFAULT 0"),
+                ("max_orders_per_week", "INTEGER DEFAULT 0"),
+                ("min_edge_pct", "NUMERIC(10,6) DEFAULT 0"),
             ]
             for col_name, ddl in columns_to_add:
                 if col_name not in bot_cols:
@@ -1382,6 +1523,42 @@ def run_lightweight_migrations() -> None:
             conn.execute(text("UPDATE bot_config SET slippage_budget_exit_pct = 0.0020 WHERE slippage_budget_exit_pct IS NULL OR slippage_budget_exit_pct < 0"))
             conn.execute(text("UPDATE bot_config SET slippage_budget_breach_halt_count = 0 WHERE slippage_budget_breach_halt_count IS NULL OR slippage_budget_breach_halt_count < 0"))
             conn.execute(text("UPDATE bot_config SET status_notify_interval_seconds = 14400 WHERE status_notify_interval_seconds IS NULL OR status_notify_interval_seconds < 300"))
+            conn.execute(text("UPDATE bot_config SET max_weekly_loss_pct = 0 WHERE max_weekly_loss_pct IS NULL OR max_weekly_loss_pct < 0"))
+            conn.execute(text("UPDATE bot_config SET max_monthly_loss_pct = 0 WHERE max_monthly_loss_pct IS NULL OR max_monthly_loss_pct < 0"))
+            conn.execute(text("UPDATE bot_config SET cooldown_hours_on_halt = 0 WHERE cooldown_hours_on_halt IS NULL OR cooldown_hours_on_halt < 0"))
+            conn.execute(text("UPDATE bot_config SET max_new_orders_per_day = 0 WHERE max_new_orders_per_day IS NULL OR max_new_orders_per_day < 0"))
+            conn.execute(text("UPDATE bot_config SET max_orders_per_week = 0 WHERE max_orders_per_week IS NULL OR max_orders_per_week < 0"))
+            conn.execute(text("UPDATE bot_config SET min_edge_pct = 0 WHERE min_edge_pct IS NULL OR min_edge_pct < 0"))
+
+        if "user_bot_config" in table_names:
+            user_bot_cols = {col["name"] for col in inspector.get_columns("user_bot_config")}
+            user_policy_cols = [
+                ("max_weekly_loss_pct", "NUMERIC(10,6) DEFAULT 0"),
+                ("max_monthly_loss_pct", "NUMERIC(10,6) DEFAULT 0"),
+                ("cooldown_hours_on_halt", "INTEGER DEFAULT 0"),
+                ("max_new_orders_per_day", "INTEGER DEFAULT 0"),
+                ("max_orders_per_week", "INTEGER DEFAULT 0"),
+                ("min_edge_pct", "NUMERIC(10,6) DEFAULT 0"),
+            ]
+            for col_name, ddl in user_policy_cols:
+                if col_name not in user_bot_cols:
+                    conn.execute(text(f"ALTER TABLE user_bot_config ADD COLUMN {col_name} {ddl}"))
+            conn.execute(text("UPDATE user_bot_config SET max_weekly_loss_pct = 0 WHERE max_weekly_loss_pct IS NULL OR max_weekly_loss_pct < 0"))
+            conn.execute(text("UPDATE user_bot_config SET max_monthly_loss_pct = 0 WHERE max_monthly_loss_pct IS NULL OR max_monthly_loss_pct < 0"))
+            conn.execute(text("UPDATE user_bot_config SET cooldown_hours_on_halt = 0 WHERE cooldown_hours_on_halt IS NULL OR cooldown_hours_on_halt < 0"))
+            conn.execute(text("UPDATE user_bot_config SET max_new_orders_per_day = 0 WHERE max_new_orders_per_day IS NULL OR max_new_orders_per_day < 0"))
+            conn.execute(text("UPDATE user_bot_config SET max_orders_per_week = 0 WHERE max_orders_per_week IS NULL OR max_orders_per_week < 0"))
+            conn.execute(text("UPDATE user_bot_config SET min_edge_pct = 0 WHERE min_edge_pct IS NULL OR min_edge_pct < 0"))
+
+        if "user_bot_runtime" in table_names:
+            runtime_cols = {col["name"] for col in inspector.get_columns("user_bot_runtime")}
+            if "halt_reason" not in runtime_cols:
+                conn.execute(text("ALTER TABLE user_bot_runtime ADD COLUMN halt_reason VARCHAR(64)"))
+            if "cooldown_until" not in runtime_cols:
+                conn.execute(text("ALTER TABLE user_bot_runtime ADD COLUMN cooldown_until DATETIME"))
+            if "halted_at" not in runtime_cols:
+                conn.execute(text("ALTER TABLE user_bot_runtime ADD COLUMN halted_at DATETIME"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_bot_runtime_halt_reason ON user_bot_runtime(halt_reason)"))
         if "timeframe_config" not in table_names:
             conn.execute(
                 text(
