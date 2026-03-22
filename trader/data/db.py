@@ -1223,7 +1223,10 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                 )
                 SELECT
                     :owner_user_id,
-                    COALESCE((SELECT ubc.is_enabled FROM user_bot_config ubc WHERE ubc.user_id = :owner_user_id), 1),
+                    COALESCE(
+                        (SELECT ubc.is_enabled FROM user_bot_config ubc WHERE ubc.user_id = :owner_user_id),
+                        :default_is_enabled
+                    ),
                     'IDLE',
                     0,
                     NULL,
@@ -1238,7 +1241,7 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                 )
                 """
             ),
-            {"owner_user_id": owner_user_id},
+            {"owner_user_id": owner_user_id, "default_is_enabled": True},
         )
 
 
