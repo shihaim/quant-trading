@@ -1,7 +1,7 @@
 ﻿# Quant Trading MVP Context Anchor
 
-Last verified: 2026-03-19
-Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/strategy.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/trading/order_policy.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `trader/app/main.py`
+Last verified: 2026-03-22
+Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/strategy.py`, `trader/trading/risk.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/trading/order_policy.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/auth/guard.py`, `trader/auth/tokens.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `trader/app/main.py`, `scripts/run_release_gate.py`, `scripts/audit_upbit_credential_coverage.py`
 
 ## Quick routing
 
@@ -98,6 +98,10 @@ Hard guards:
 
 - If bot is disabled: halt, target exposure = `0`.
 - If daily PnL pct <= `-abs(max_daily_loss_pct)`: halt, target exposure = `0`.
+- If weekly PnL pct <= `-abs(max_weekly_loss_pct)` (when configured): halt, target exposure = `0`.
+- If monthly PnL pct <= `-abs(max_monthly_loss_pct)` (when configured): halt, target exposure = `0`.
+- If `new_orders_today >= max_new_orders_per_day` (when configured): halt, target exposure = `0`.
+- If `orders_this_week >= max_orders_per_week` (when configured): halt, target exposure = `0`.
 
 Exposure logic:
 
@@ -110,6 +114,7 @@ Exposure logic:
 Gates:
 
 - Skip rebalance if `abs(target_exposure_pct - current_exposure_pct) < min_rebalance_threshold_pct`.
+- Skip BUY if signal edge pct is below `min_edge_pct` (filter only, no runtime halt).
 - Skip if order notional < `5000 KRW + min_order_krw_buffer`.
 
 ## 5. Runtime config invariants
@@ -133,10 +138,16 @@ Runtime config is loaded from DB, not only env.
 - `target_exposure_pct`
 - `daily_loss_basis`: `TOTAL` or `REALIZED_ONLY`
 - `max_daily_loss_pct`
+- `max_weekly_loss_pct`
+- `max_monthly_loss_pct`
 - `max_total_exposure_pct`
 - `max_per_market_exposure_pct`
 - `min_rebalance_threshold_pct`
 - `min_order_krw_buffer`
+- `cooldown_hours_on_halt`
+- `max_new_orders_per_day`
+- `max_orders_per_week`
+- `min_edge_pct`
 - `fill_timeout_sec_entry`, `fill_timeout_sec_exit`, `fill_timeout_sec_rebalance`
 - `max_reprice_attempts_entry`, `max_reprice_attempts_exit`, `max_reprice_attempts_rebalance`
 - `reprice_step_bps`
@@ -152,6 +163,10 @@ Sanitization rules:
 - `reprice_step_bps` is clamped to `1..500`
 - notify interval is clamped to `300..86400`
 - `daily_loss_basis` is only `TOTAL` or `REALIZED_ONLY`; invalid values become `TOTAL`
+- `max_weekly_loss_pct`, `max_monthly_loss_pct`, `min_edge_pct` are clamped into `0..1`
+- `cooldown_hours_on_halt` is clamped to `0..168`
+- `max_new_orders_per_day` is clamped to `0..10000`
+- `max_orders_per_week` is clamped to `0..70000`
 
 ## 6. Order states and mappings
 
@@ -361,7 +376,9 @@ Notable endpoints:
 - admin per-user scoped reads under `/api/admin/users/{user_id}/*`
 - admin ops visibility summary: `GET /api/admin/users/runtime-summary`
 - admin audit read/search: `GET /api/admin/audit/logs`
+- admin session lifecycle control: `POST /api/admin/users/{user_id}/sessions/invalidate`
 - admin compatibility endpoints under `/api/ops/*`, `/api/admin/*`, `/api/orders`, `/api/pnl/daily`, `/api/metrics/trade`
+- legacy compatibility endpoints `POST /api/bot/enable|disable` are retired and return `410 legacy_endpoint_retired` with replacement path metadata
 
 Release gate artifact command:
 

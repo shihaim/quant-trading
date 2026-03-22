@@ -62,8 +62,8 @@ python -m trader.app.ops_api --host 127.0.0.1 --port 8080
 - `GET /api/orders?state=ERROR_NEEDS_REVIEW&limit=50`
 - `GET /api/pnl/daily?days=30&tz=UTC`
 - `GET /api/metrics/trade?limit=200`
-- `POST /api/bot/enable`
-- `POST /api/bot/disable`
+- `POST /api/bot/enable` (종료됨: `410 legacy_endpoint_retired` 반환, `/api/me/bot/start` 사용)
+- `POST /api/bot/disable` (종료됨: `410 legacy_endpoint_retired` 반환, `/api/me/bot/stop` 사용)
 
 프론트/백엔드 분리 배포 시 CORS 허용:
 
@@ -168,10 +168,16 @@ docker compose up -d --force-recreate caddy
 - `target_exposure_pct`: 매수 시그널 기본 목표 익스포저 비율 (예: `0.15`)
 - `daily_loss_basis`: `TOTAL`(기본) 또는 `REALIZED_ONLY`
 - `max_daily_loss_pct`
+- `max_weekly_loss_pct`
+- `max_monthly_loss_pct`
 - `max_total_exposure_pct`
 - `max_per_market_exposure_pct`
 - `min_rebalance_threshold_pct`: 너무 작은 익스포저 변경은 건너뜀
 - `min_order_krw_buffer`: 최소 주문 금액 대비 추가 KRW 버퍼
+- `cooldown_hours_on_halt`: 리스크 중단 이후 재시작 차단 시간 (`0`이면 비활성)
+- `max_new_orders_per_day`: 사용자별 일일 신규 주문 한도 (`0`이면 비활성)
+- `max_orders_per_week`: 사용자별 주간 주문 한도 (`0`이면 비활성)
+- `min_edge_pct`: BUY 시그널 최소 엣지 필터 (`0`이면 비활성)
 - `fill_timeout_sec_entry`, `fill_timeout_sec_exit`, `fill_timeout_sec_rebalance`
 - `max_reprice_attempts_entry`, `max_reprice_attempts_exit`, `max_reprice_attempts_rebalance`
 - `reprice_step_bps`

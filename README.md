@@ -62,8 +62,8 @@ Legacy ops compatibility paths:
 - `GET /api/orders?state=ERROR_NEEDS_REVIEW&limit=50`
 - `GET /api/pnl/daily?days=30&tz=UTC`
 - `GET /api/metrics/trade?limit=200`
-- `POST /api/bot/enable`
-- `POST /api/bot/disable`
+- `POST /api/bot/enable` (retired: returns `410 legacy_endpoint_retired`, use `/api/me/bot/start`)
+- `POST /api/bot/disable` (retired: returns `410 legacy_endpoint_retired`, use `/api/me/bot/stop`)
 
 For split frontend/backend deployment, allow CORS with:
 
@@ -168,10 +168,16 @@ The `bot_config` row with `id=1` is reloaded during runtime:
 - `target_exposure_pct`: default target exposure ratio on buy signals (example: `0.15`)
 - `daily_loss_basis`: `TOTAL` (default) or `REALIZED_ONLY`
 - `max_daily_loss_pct`
+- `max_weekly_loss_pct`
+- `max_monthly_loss_pct`
 - `max_total_exposure_pct`
 - `max_per_market_exposure_pct`
 - `min_rebalance_threshold_pct`: skip tiny exposure changes
 - `min_order_krw_buffer`: extra KRW buffer above minimum notional
+- `cooldown_hours_on_halt`: start-block cooldown window after risk halt (`0` disables cooldown)
+- `max_new_orders_per_day`: per-user daily new-order limit (`0` disables limit)
+- `max_orders_per_week`: per-user weekly order limit (`0` disables limit)
+- `min_edge_pct`: BUY signal edge threshold (`0` disables filter)
 - `fill_timeout_sec_entry`, `fill_timeout_sec_exit`, `fill_timeout_sec_rebalance`
 - `max_reprice_attempts_entry`, `max_reprice_attempts_exit`, `max_reprice_attempts_rebalance`
 - `reprice_step_bps`

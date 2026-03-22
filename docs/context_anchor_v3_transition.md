@@ -1,7 +1,7 @@
 ﻿# Quant Trading MVP Context Anchor (V3 Transition Safe)
 
-Last verified: 2026-03-19
-Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `scripts/run_release_gate.py`, `apps/web/components/admin-users-runtime-table.tsx`, `apps/web/components/admin-audit-log-viewer.tsx`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
+Last verified: 2026-03-22
+Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/risk.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/auth/guard.py`, `trader/auth/tokens.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `scripts/run_release_gate.py`, `scripts/audit_upbit_credential_coverage.py`, `apps/web/components/admin-users-runtime-table.tsx`, `apps/web/components/admin-audit-log-viewer.tsx`, `apps/web/components/ops-dashboard.tsx`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
 
 ## Quick routing
 
@@ -242,9 +242,9 @@ Use this exact fragment after selecting a story:
 
 > Read `docs/context_anchor_v3_transition.md` first. Implement Story `Sx` from `2026-03-10 Post-V3 Ops Hardening Backlog` while preserving: no cross-user mixing, no owner-bridge reintroduction on `/api/me/*`, no required global `bot_config(id=1)`, per-user failure isolation, and admin boundary integrity. Patch backend/tests/docs together (plus frontend if touched), then map results to story acceptance.
 
-### 11.5 Implemented B1 references (2026-03-19)
+### 11.5 Implemented B1~B3 references (2026-03-22)
 
-Use these as current contracts for B1-complete branches:
+Use these as current contracts for branches with B1~B3 applied:
 
 - S1 endpoint: `GET /api/admin/users/runtime-summary`
 - S2 endpoint: `GET /api/admin/audit/logs`
@@ -252,3 +252,16 @@ Use these as current contracts for B1-complete branches:
   - guardrails: default bounded window, maximum date-range guard, latest-first pagination
 - S3 command: `python scripts/run_release_gate.py --output-dir .`
   - artifacts: `release_gate_report.json`, `release_gate_report.md`
+- S3 credential audit command: `python scripts/audit_upbit_credential_coverage.py`
+- S4 compatibility endpoint behavior:
+  - `POST /api/bot/enable|disable` -> `410 legacy_endpoint_retired`
+  - replacement path metadata: `/api/me/bot/start|stop`
+- S5 session lifecycle:
+  - token includes `token_version`; stale/revoked token yields `401 session_revoked`
+  - admin action: `POST /api/admin/users/{user_id}/sessions/invalidate`
+- S6 order-attempt consistency:
+  - normalized latest/next attempt calculations in shared helpers
+  - runbook: `docs/order_attempts_unique_constraints_runbook_2026-03-22.md`
+- S7 risk policy expansion:
+  - new config keys: `max_weekly_loss_pct`, `max_monthly_loss_pct`, `cooldown_hours_on_halt`, `max_new_orders_per_day`, `max_orders_per_week`, `min_edge_pct`
+  - new halt reasons: `weekly_loss_limit`, `monthly_loss_limit`, `new_orders_daily_limit`, `orders_weekly_limit`, `cooldown_active`
