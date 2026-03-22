@@ -209,6 +209,14 @@ export interface AdminAuditLogsResponse {
   source?: string;
 }
 
+export interface AdminSessionInvalidateResponse {
+  user_id: number;
+  token_version: number;
+  invalidated_before_version: number;
+  reason: string;
+  source: string;
+}
+
 export interface AuthUserIdentity {
   id: number;
   email: string;

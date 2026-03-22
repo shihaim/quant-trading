@@ -5,12 +5,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trader.data.models import Order, OrderAttempt
 from trader.exchange.upbit_client import UpbitClient
 from trader.trading.execution import ExecutionEngine
+from trader.trading.order_attempts import next_attempt_no_for_order
 from trader.trading.order_states import UPBIT_TO_LOCAL
 from trader.trading.portfolio import PortfolioService
 
@@ -180,10 +181,7 @@ class ReconcileService:
         return None
 
     def _next_attempt_no(self, order_id: int) -> int:
-        current = self.session.scalar(
-            select(func.max(OrderAttempt.attempt_no)).where(OrderAttempt.order_id == order_id)
-        )
-        return int(current or 0) + 1
+        return next_attempt_no_for_order(self.session, order_id)
 
     @staticmethod
     def _mirror_attempt_to_order(order: Order, attempt_row: OrderAttempt) -> None:

@@ -338,16 +338,20 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
             method="POST",
             path="/api/bot/enable",
         )
-        assert status == 404
-        assert payload["error"] == "not_found"
+        assert status == 410
+        assert payload["error"] == "legacy_endpoint_retired"
+        assert payload["replacement"] == "/api/me/bot/start"
+        assert payload["source"] == "/api/bot/enable"
 
         status, payload = _request_json(
             port=server.server_port,
             method="POST",
             path="/api/bot/disable",
         )
-        assert status == 404
-        assert payload["error"] == "not_found"
+        assert status == 410
+        assert payload["error"] == "legacy_endpoint_retired"
+        assert payload["replacement"] == "/api/me/bot/stop"
+        assert payload["source"] == "/api/bot/disable"
 
         with Session() as session:
             user_id_1 = session.execute(select(User.id).where(User.email == "user@example.com")).scalar_one()
@@ -740,6 +744,136 @@ def test_admin_user_scoped_routes_enforce_admin_and_target_scope(tmp_path, monke
         assert status == 200
         assert payload["user_id"] == user_a_id
         assert payload["source"].endswith("/bot/status")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        engine.dispose()
+
+
+def test_admin_can_invalidate_user_sessions_with_token_version_bump(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
+
+    db_path = tmp_path / "ops-http-admin-session-invalidate.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    handler_cls = create_ops_handler(
+        session_factory=Session,
+        trade_mode="PAPER",
+        allow_origin="*",
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 201
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "member@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 201
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        admin_token = payload["access_token"]
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "member@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        member_token = payload["access_token"]
+
+        with Session() as session:
+            member_id = session.execute(select(User.id).where(User.email == "member@example.com")).scalar_one()
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path=f"/api/admin/users/{member_id}/sessions/invalidate",
+            payload={"reason": "role_changed"},
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+        assert status == 403
+        assert payload["error"] == "forbidden"
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path=f"/api/admin/users/{member_id}/sessions/invalidate",
+            payload={"reason": "role_changed"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert status == 200
+        assert payload["user_id"] == member_id
+        assert payload["invalidated_before_version"] == 1
+        assert payload["token_version"] == 2
+        assert payload["reason"] == "role_changed"
+        assert payload["source"] == f"/api/admin/users/{member_id}/sessions/invalidate"
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/me",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+        assert status == 401
+        assert payload["error"] == "unauthorized"
+        assert payload["message"] == "session_revoked"
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "member@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        fresh_member_token = payload["access_token"]
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/me",
+            headers={"Authorization": f"Bearer {fresh_member_token}"},
+        )
+        assert status == 200
+        assert payload["user"]["email"] == "member@example.com"
+
+        with Session() as session:
+            member = session.execute(select(User).where(User.email == "member@example.com")).scalar_one()
+            assert member.token_version == 2
+            logs = session.execute(select(AuditLog).order_by(AuditLog.id.asc())).scalars().all()
+            assert len(logs) == 2
+            assert logs[0].action == ACTION_ADMIN_ACTION
+            first_meta = json.loads(logs[0].metadata_json)
+            assert first_meta["source"] == f"/api/admin/users/{member_id}/sessions/invalidate"
+            assert first_meta["outcome"] == "forbidden"
+            assert first_meta["method"] == "POST"
+            second_meta = json.loads(logs[1].metadata_json)
+            assert second_meta["source"] == f"/api/admin/users/{member_id}/sessions/invalidate"
+            assert second_meta["outcome"] == "allowed"
+            assert second_meta["target_user_id"] == member_id
+            assert second_meta["reason"] == "role_changed"
+            assert second_meta["token_version_before"] == 1
+            assert second_meta["token_version_after"] == 2
     finally:
         server.shutdown()
         server.server_close()

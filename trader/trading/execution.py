@@ -8,12 +8,13 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR
 from typing import Iterable
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from trader.data.models import Fill, Order, OrderAttempt, TradeMetric
 from trader.exchange.upbit_client import UpbitClient
 from trader.trading.error_handling import OrderValidationError, classify_exception
+from trader.trading.order_attempts import load_latest_attempt_for_order, next_attempt_no_for_order
 from trader.trading.order_policy import OrderIntent, OrderPolicy, OrderPolicyConfig, resolve_intent
 from trader.trading.order_states import LOCAL_OPEN_STATES, UPBIT_TO_LOCAL
 
@@ -673,10 +674,7 @@ class ExecutionEngine:
         return attempt_row
 
     def _next_attempt_no(self, order_id: int) -> int:
-        current = self.session.scalar(
-            select(func.max(OrderAttempt.attempt_no)).where(OrderAttempt.order_id == order_id)
-        )
-        return int(current or 0) + 1
+        return next_attempt_no_for_order(self.session, order_id)
 
     def _reserve_unique_upbit_identifier(self, market: str, side: str) -> str:
         for _ in range(10):
@@ -689,26 +687,11 @@ class ExecutionEngine:
         raise RuntimeError("failed to allocate unique upbit_identifier")
 
     def _attempt_for_order(self, order: Order) -> OrderAttempt | None:
-        if order.upbit_uuid:
-            row = self.session.scalar(
-                select(OrderAttempt)
-                .where(OrderAttempt.order_id == order.id, OrderAttempt.upbit_uuid == order.upbit_uuid)
-                .order_by(OrderAttempt.attempt_no.desc(), OrderAttempt.id.desc())
-            )
-            if row is not None:
-                return row
-        if order.upbit_identifier:
-            row = self.session.scalar(
-                select(OrderAttempt)
-                .where(OrderAttempt.order_id == order.id, OrderAttempt.upbit_identifier == order.upbit_identifier)
-                .order_by(OrderAttempt.attempt_no.desc(), OrderAttempt.id.desc())
-            )
-            if row is not None:
-                return row
-        return self.session.scalar(
-            select(OrderAttempt)
-            .where(OrderAttempt.order_id == order.id)
-            .order_by(OrderAttempt.attempt_no.desc(), OrderAttempt.id.desc())
+        return load_latest_attempt_for_order(
+            self.session,
+            order_id=order.id,
+            upbit_uuid=order.upbit_uuid,
+            upbit_identifier=order.upbit_identifier,
         )
 
     @staticmethod

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from trader.data.models import Order, OrderAttempt, TradeMetric
+from trader.trading.order_attempts import latest_attempt_from_rows
 
 KST = timezone(timedelta(hours=9))
 
@@ -41,9 +42,7 @@ def to_float(value: Decimal | float | int | None) -> float:
 
 
 def latest_attempt(row: Order) -> OrderAttempt | None:
-    if not getattr(row, "attempts", None):
-        return None
-    return max(row.attempts, key=lambda item: item.attempt_no)
+    return latest_attempt_from_rows(getattr(row, "attempts", None))
 
 
 def to_order_item(row: Order) -> dict:

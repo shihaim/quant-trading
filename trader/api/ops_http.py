@@ -160,6 +160,7 @@ def create_ops_handler(
             ttl_seconds = max(1, int(settings.ops_api_auth_token_ttl_seconds))
             token = issue_access_token(
                 user_id=user.id,
+                token_version=max(1, int(getattr(user, "token_version", 1) or 1)),
                 secret=settings.ops_api_auth_secret,
                 ttl_seconds=ttl_seconds,
             )
@@ -259,6 +260,24 @@ def create_ops_handler(
                 return None
             scope_path = "/" + "/".join(parts[1:])
             return user_id, scope_path
+
+        def _parse_admin_user_session_invalidate_path(self, path: str) -> int | None:
+            prefix = "/api/admin/users/"
+            if not path.startswith(prefix):
+                return None
+            suffix = path[len(prefix) :]
+            if not suffix:
+                return None
+            parts = [part for part in suffix.split("/") if part]
+            if len(parts) != 3:
+                return None
+            user_id_raw, first_scope, second_scope = parts
+            if first_scope != "sessions" or second_scope != "invalidate":
+                return None
+            if not user_id_raw.isdigit():
+                return None
+            user_id = int(user_id_raw)
+            return user_id if user_id > 0 else None
 
         def _admin_user_bot_status(self, *, session: Session, target_user_id: int, source: str) -> dict:
             repo = ConfigRepo(session)
@@ -822,6 +841,69 @@ def create_ops_handler(
                         password=str(payload.get("password", "")),
                     )
                     self._write_json(200, self._build_auth_payload(user=user))
+                    return
+                if parsed.path in {"/api/bot/enable", "/api/bot/disable"}:
+                    replacement = "/api/me/bot/start" if parsed.path.endswith("/enable") else "/api/me/bot/stop"
+                    self._write_json(
+                        410,
+                        {
+                            "error": "legacy_endpoint_retired",
+                            "message": "use_scoped_me_bot_endpoint",
+                            "source": parsed.path,
+                            "replacement": replacement,
+                            "sunset_date": "2026-03-31",
+                        },
+                    )
+                    return
+                parsed_admin_invalidate = self._parse_admin_user_session_invalidate_path(parsed.path)
+                if parsed_admin_invalidate is not None:
+                    admin_user = self._require_admin_user(session=session)
+                    if admin_user is None:
+                        return
+                    if self._enforce_request_budget(
+                        session=session,
+                        user=admin_user,
+                        scope=SCOPE_ADMIN,
+                        source=parsed.path,
+                    ) is None:
+                        return
+                    target_user = session.get(User, parsed_admin_invalidate)
+                    if target_user is None:
+                        self._write_json(404, {"error": "not_found", "message": "user_not_found"})
+                        return
+                    payload = self._read_json_body()
+                    reason = str(payload.get("reason", "")).strip() or "admin_invalidation"
+                    previous_version = max(1, int(getattr(target_user, "token_version", 1) or 1))
+                    target_user.token_version = previous_version + 1
+                    session.add(target_user)
+                    session.commit()
+                    session.refresh(target_user)
+                    self._record_audit_action(
+                        session=session,
+                        actor_user_id=admin_user.id,
+                        action=ACTION_ADMIN_ACTION,
+                        target_type="admin_route",
+                        target_id=parsed.path,
+                        metadata={
+                            "source": parsed.path,
+                            "method": "POST",
+                            "outcome": "allowed",
+                            "target_user_id": parsed_admin_invalidate,
+                            "reason": reason,
+                            "token_version_before": previous_version,
+                            "token_version_after": target_user.token_version,
+                        },
+                    )
+                    self._write_json(
+                        200,
+                        {
+                            "user_id": parsed_admin_invalidate,
+                            "token_version": int(target_user.token_version),
+                            "invalidated_before_version": previous_version,
+                            "reason": reason,
+                            "source": parsed.path,
+                        },
+                    )
                     return
                 if parsed.path == "/api/me/credentials/upbit":
                     user = self._require_authenticated_user(session=session)

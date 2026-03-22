@@ -41,7 +41,12 @@ export function useAuthGuard() {
   const handleAuthError = useCallback((error: unknown): boolean => {
     if (error instanceof ApiRequestError && error.status === 401) {
       clearAuthSession();
-      router.replace(buildLoginPath(nextPath));
+      const reason = error.detail === "expired_token"
+        ? "expired"
+        : error.detail === "session_revoked"
+          ? "revoked"
+          : "unauthorized";
+      router.replace(buildLoginPath(nextPath, reason));
       return true;
     }
     return false;

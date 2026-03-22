@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { opsApi } from "../lib/api";
-import { clearAuthSession, readAccessTokenOrEmpty } from "../lib/auth";
+import { buildLoginPath, clearAuthSession, readAccessTokenOrEmpty } from "../lib/auth";
 
 const PUBLIC_NAV_ITEMS = [{ href: "/", label: "Entry" }];
 
@@ -96,7 +96,8 @@ export function AppShell({ children }: { children: ReactNode }) {
                     clearAuthSession();
                     setAuthToken("");
                     setIsAdmin(false);
-                    router.push("/login");
+                    const safeNext = pathname && pathname.startsWith("/") ? pathname : "/dashboard";
+                    router.push(buildLoginPath(safeNext, "logged_out"));
                   }}
                 >
                   Logout

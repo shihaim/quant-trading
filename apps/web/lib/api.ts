@@ -1,5 +1,6 @@
 import type {
   AdminAuditLogsResponse,
+  AdminSessionInvalidateResponse,
   AdminRuntimeSummaryResponse,
   AuthTokenResponse,
   AuthUserIdentity,
@@ -145,6 +146,23 @@ export const opsApi = {
         offset,
       }),
       undefined,
+      accessToken
+    ),
+  invalidateAdminUserSessions: ({
+    accessToken,
+    userId,
+    reason,
+  }: {
+    accessToken: string;
+    userId: number;
+    reason?: string;
+  }) =>
+    request<AdminSessionInvalidateResponse>(
+      `/api/admin/users/${Math.max(1, Math.trunc(userId))}/sessions/invalidate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason: reason || "admin_runtime_action" }),
+      },
       accessToken
     ),
   getMyOrders: ({

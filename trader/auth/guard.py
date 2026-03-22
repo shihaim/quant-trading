@@ -35,11 +35,15 @@ def authenticate_request(
 
     try:
         claims = decode_access_token(token, secret=secret)
-    except TokenError:
+    except TokenError as exc:
+        if str(exc) == "expired":
+            return AuthGuardResult(user=None, error="expired_token")
         return AuthGuardResult(user=None, error="invalid_token")
 
     user = session.get(User, claims.user_id)
     if user is None or not user.is_active:
         return AuthGuardResult(user=None, error="invalid_user")
+    user_token_version = max(1, int(getattr(user, "token_version", 1) or 1))
+    if user_token_version != int(claims.token_version):
+        return AuthGuardResult(user=None, error="session_revoked")
     return AuthGuardResult(user=user, error=None)
-

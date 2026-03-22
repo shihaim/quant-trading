@@ -54,6 +54,8 @@ export function AdminUsersRuntimeTable({
   const [payload, setPayload] = useState<AdminRuntimeSummaryResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [invalidatingUserId, setInvalidatingUserId] = useState<number | null>(null);
+  const [actionMessage, setActionMessage] = useState("");
 
   const loadSummary = useCallback(async () => {
     if (!accessToken) {
@@ -91,6 +93,42 @@ export function AdminUsersRuntimeTable({
     return () => window.clearInterval(timer);
   }, [loadSummary]);
 
+  const invalidateUserSessions = useCallback(
+    async (userId: number) => {
+      if (!accessToken || invalidatingUserId !== null) {
+        return;
+      }
+      setInvalidatingUserId(userId);
+      setActionMessage("");
+      try {
+        const response = await opsApi.invalidateAdminUserSessions({
+          accessToken,
+          userId,
+          reason: "admin_ops_session_invalidate",
+        });
+        setActionMessage(
+          `user ${response.user_id} session invalidated (v${response.invalidated_before_version} -> v${response.token_version})`
+        );
+        await loadSummary();
+      } catch (requestError) {
+        if (onAuthError?.(requestError)) {
+          return;
+        }
+        const message = toErrorMessage(requestError);
+        setActionMessage(`session invalidation failed: ${message}`);
+        void sendClientLog({
+          level: "ERROR",
+          source: "admin-users-runtime-table.invalidateUserSessions",
+          message,
+          context: { user_id: userId },
+        });
+      } finally {
+        setInvalidatingUserId(null);
+      }
+    },
+    [accessToken, invalidatingUserId, loadSummary, onAuthError]
+  );
+
   const items = payload?.items ?? [];
 
   return (
@@ -109,9 +147,10 @@ export function AdminUsersRuntimeTable({
       </div>
 
       {error ? <p className="mb-3 text-sm text-red-700">{error}</p> : null}
+      {actionMessage ? <p className="mb-3 text-xs text-muted">{actionMessage}</p> : null}
 
       <div className="overflow-x-auto rounded-lg border border-black/10 bg-white/70">
-        <table className="min-w-[1180px] w-full border-collapse text-sm">
+        <table className="min-w-[1260px] w-full border-collapse text-sm">
           <thead className="bg-black/5 text-left">
             <tr>
               <th className="px-3 py-2">User</th>
@@ -122,6 +161,7 @@ export function AdminUsersRuntimeTable({
               <th className="px-3 py-2">Halt</th>
               <th className="px-3 py-2">Recent Activity</th>
               <th className="px-3 py-2">Flags</th>
+              <th className="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -182,12 +222,21 @@ export function AdminUsersRuntimeTable({
                       <p className="mt-1 text-xs text-red-800">{short(item.runtime.last_error, 72)}</p>
                     ) : null}
                   </td>
+                  <td className="px-3 py-2">
+                    <button
+                      className="rounded-md border border-black/10 bg-white px-2 py-1 text-xs transition-colors hover:bg-black/5 disabled:opacity-60"
+                      onClick={() => void invalidateUserSessions(item.user_id)}
+                      disabled={invalidatingUserId !== null}
+                    >
+                      {invalidatingUserId === item.user_id ? "Invalidating..." : "Invalidate Session"}
+                    </button>
+                  </td>
                 </tr>
               );
             })}
             {!items.length && !isLoading ? (
               <tr>
-                <td className="px-3 py-3 text-sm text-muted" colSpan={8}>
+                <td className="px-3 py-3 text-sm text-muted" colSpan={9}>
                   No users found.
                 </td>
               </tr>
@@ -198,4 +247,3 @@ export function AdminUsersRuntimeTable({
     </section>
   );
 }
-

@@ -55,3 +55,37 @@ def test_authenticate_request_rejects_invalid_or_missing_token():
 
     assert missing.error == "missing_token"
     assert invalid.error == "invalid_token"
+
+
+def test_authenticate_request_marks_expired_token():
+    session = _session()
+    user = AuthService(session).signup(email="guard-expired@example.com", password="strong-pass-123")
+    token = issue_access_token(user_id=user.id, secret="guard-secret", ttl_seconds=1, now_ts=1)
+
+    expired = authenticate_request(
+        session=session,
+        authorization_header=f"Bearer {token}",
+        secret="guard-secret",
+    )
+
+    assert expired.error == "expired_token"
+    assert expired.user is None
+
+
+def test_authenticate_request_rejects_revoked_session_token():
+    session = _session()
+    user = AuthService(session).signup(email="guard-revoked@example.com", password="strong-pass-123")
+    token = issue_access_token(user_id=user.id, token_version=1, secret="guard-secret", ttl_seconds=60)
+
+    user.token_version = 2
+    session.add(user)
+    session.commit()
+
+    revoked = authenticate_request(
+        session=session,
+        authorization_header=f"Bearer {token}",
+        secret="guard-secret",
+    )
+
+    assert revoked.error == "session_revoked"
+    assert revoked.user is None

@@ -58,8 +58,9 @@
 
 ## 5) 현재 제한 사항
 
-- 레거시 엔드포인트 (`/api/bot/enable`, `/api/bot/disable`)는 기존 빠른 제어 경로를 위해 아직 남아 있습니다.
-- Home의 빠른 토글 경로는 아직 레거시 지향이며, 별도 하드닝 티켓에서 제거할 수 있습니다.
+- 레거시 엔드포인트 (`/api/bot/enable`, `/api/bot/disable`)는 2026-03-31 sunset 기준으로 retired 처리되며, 서버에서 `410 legacy_endpoint_retired`를 반환합니다.
+- 공식 Bot 제어 계약은 `/api/me/bot/start`, `/api/me/bot/stop`입니다.
+- Home의 빠른 토글 경로는 레거시 호출을 사용하지 않도록 별도 하드닝 티켓에서 정리해야 합니다.
 
 ## 6) 다음 우선순위 제안
 

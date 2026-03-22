@@ -97,8 +97,9 @@ python -m pytest -q
 
 ## 5) 호환성 메모
 
-- 레거시 `/api/bot/enable`, `/api/bot/disable`는 기존 경로 호환을 위해 아직 유지됩니다.
-- 전용 Bot Control 페이지는 이제 인증 사용자 스코프 계약만 사용하며 레거시 fallback에 의존하지 않습니다.
+- 레거시 `/api/bot/enable`, `/api/bot/disable`는 2026-03-31 sunset 기준으로 retired 처리되며, 서버는 `410 legacy_endpoint_retired`를 반환합니다.
+- 대체 계약은 `/api/me/bot/start`, `/api/me/bot/stop`입니다.
+- 전용 Bot Control 페이지는 인증 사용자 스코프 계약만 사용하며 레거시 fallback에 의존하지 않습니다.
 
 ## 6) 후속 권장 작업
 

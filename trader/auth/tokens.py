@@ -15,6 +15,7 @@ class TokenError(ValueError):
 @dataclass(frozen=True)
 class TokenClaims:
     user_id: int
+    token_version: int
     issued_at: int
     expires_at: int
 
@@ -35,6 +36,7 @@ def _sign(message: bytes, secret: str) -> bytes:
 def issue_access_token(
     *,
     user_id: int,
+    token_version: int = 1,
     secret: str,
     ttl_seconds: int,
     now_ts: int | None = None,
@@ -49,6 +51,7 @@ def issue_access_token(
     payload = {
         "v": 1,
         "sub": str(user_id),
+        "tv": max(1, int(token_version)),
         "iat": issued_at,
         "exp": expires_at,
     }
@@ -76,6 +79,7 @@ def decode_access_token(token: str, *, secret: str, now_ts: int | None = None) -
     try:
         payload = json.loads(_b64decode(payload_part).decode("utf-8"))
         user_id = int(payload["sub"])
+        token_version = int(payload.get("tv", 1))
         issued_at = int(payload["iat"])
         expires_at = int(payload["exp"])
     except Exception as exc:
@@ -84,8 +88,14 @@ def decode_access_token(token: str, *, secret: str, now_ts: int | None = None) -
     now_value = int(time.time() if now_ts is None else now_ts)
     if expires_at <= now_value:
         raise TokenError("expired")
+    if token_version <= 0:
+        raise TokenError("invalid_payload")
     if issued_at <= 0 or expires_at <= issued_at:
         raise TokenError("invalid_timestamps")
 
-    return TokenClaims(user_id=user_id, issued_at=issued_at, expires_at=expires_at)
-
+    return TokenClaims(
+        user_id=user_id,
+        token_version=token_version,
+        issued_at=issued_at,
+        expires_at=expires_at,
+    )
