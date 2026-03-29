@@ -377,7 +377,8 @@ Notable endpoints:
 - admin ops visibility summary: `GET /api/admin/users/runtime-summary`
 - admin audit read/search: `GET /api/admin/audit/logs`
 - admin session lifecycle control: `POST /api/admin/users/{user_id}/sessions/invalidate`
-- admin compatibility endpoints under `/api/ops/*`, `/api/admin/*`, `/api/orders`, `/api/pnl/daily`, `/api/metrics/trade`
+- admin role change: `POST /api/admin/users/{user_id}/role`
+- retired admin compatibility aliases return `410 legacy_endpoint_retired` with replacement metadata
 - legacy compatibility endpoints `POST /api/bot/enable|disable` are retired and return `410 legacy_endpoint_retired` with replacement path metadata
 
 Release gate artifact command:
@@ -387,7 +388,6 @@ Release gate artifact command:
 Current compatibility behavior:
 
 - `/api/me/*` is user-scoped and must not depend on owner bridging.
-- Some legacy admin/ops endpoints still use owner fallback scope through `OpsService(scope_user_id=None)` -> `resolve_owner_user_id()`.
 - Do not casually remove compatibility fallback paths unless the task explicitly includes migration/removal.
 
 ## 13. Do-not-break rules

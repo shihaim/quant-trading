@@ -30,10 +30,40 @@ trading.db
 *.log
 logs/
 /backups/
-/scripts/*
-!/scripts/run_release_gate.py
-!/scripts/audit_upbit_credential_coverage.py
+/scripts/__pycache__/
 infra/caddy/root.crt
+
+# Local release-gate artifacts
+release_gate_report.json
+release_gate_report.md
+rg-*/
+
+# Local Docker client temp config
+.docker-tmp/
+
+# Local DB temp dirs / sidecar files
+_localtest_sqlite/
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Local backup dumps (can include sensitive data)
+trading-*.sql
+trading-*.dump
+*.bak
+
+# Private key / certificate artifacts
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_ed25519
+
+# Local auth config files
+.npmrc
+.pypirc
 
 # Environment / secrets
 .env

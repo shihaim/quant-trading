@@ -51,6 +51,7 @@ COLUMN_DOCS_EN = {
         "password_hash": "PBKDF2 password hash string.",
         "display_name": "Optional profile display name.",
         "is_active": "Whether login is allowed for this user.",
+-        "is_admin": "DB-backed admin role flag.",
         "token_version": "Monotonic token version for server-side session invalidation.",
         "created_at": "Creation timestamp.",
         "updated_at": "Last update timestamp.",
@@ -257,6 +258,7 @@ COLUMN_DOCS_KO = {
         "password_hash": "PBKDF2 비밀번호 해시 문자열.",
         "display_name": "선택 사용자 표시 이름.",
         "is_active": "해당 사용자의 로그인 허용 여부.",
+        "is_admin": "DB 기반 관리자 역할 플래그.",
         "token_version": "서버 측 세션 무효화에 사용하는 단조 증가 토큰 버전.",
         "created_at": "생성 시각.",
         "updated_at": "마지막 수정 시각.",
@@ -1265,6 +1267,26 @@ def _ensure_users_token_version(conn) -> None:
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_token_version ON users(token_version)"))
 
 
+def _ensure_users_admin_role(conn) -> None:
+    inspector = inspect(conn)
+    table_names = set(inspector.get_table_names())
+    if "users" not in table_names:
+        return
+
+    user_cols = {col["name"] for col in inspector.get_columns("users")}
+    if "is_admin" not in user_cols:
+        conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT FALSE"))
+
+    if conn.dialect.name == "postgresql":
+        conn.execute(text("UPDATE users SET is_admin = FALSE WHERE is_admin IS NULL"))
+        conn.execute(text("ALTER TABLE users ALTER COLUMN is_admin SET DEFAULT FALSE"))
+        conn.execute(text("ALTER TABLE users ALTER COLUMN is_admin SET NOT NULL"))
+    else:
+        conn.execute(text("UPDATE users SET is_admin = CASE WHEN is_admin IS NULL THEN 0 ELSE is_admin END"))
+
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_is_admin ON users(is_admin)"))
+
+
 def _ensure_s7_policy_columns(conn) -> None:
     inspector = inspect(conn)
     table_names = set(inspector.get_table_names())
@@ -1361,6 +1383,7 @@ def run_lightweight_migrations() -> None:
     with engine.begin() as conn:
         if conn.dialect.name == "postgresql":
             _ensure_users_token_version(conn)
+            _ensure_users_admin_role(conn)
             owner_user_id = _resolve_legacy_owner_user_id(conn)
             _postgres_ensure_positions_user_scope(conn, owner_user_id=owner_user_id)
             _postgres_ensure_daily_equity_user_scope(conn, owner_user_id=owner_user_id)
@@ -1375,6 +1398,7 @@ def run_lightweight_migrations() -> None:
         table_names = set(inspector.get_table_names())
         owner_user_id = _resolve_legacy_owner_user_id(conn)
         _ensure_users_token_version(conn)
+        _ensure_users_admin_role(conn)
 
         if "orders" in table_names:
             order_cols = {col["name"] for col in inspector.get_columns("orders")}

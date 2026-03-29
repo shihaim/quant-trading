@@ -6,6 +6,10 @@
 ## One-command Path
 - Local:
   - `python scripts/run_release_gate.py --output-dir .`
+- Local + Docker smoke (auth/admin/session lifecycle):
+  - `python scripts/run_release_gate.py --output-dir . --include-localtest-smoke`
+- Local + Docker smoke (required):
+  - `python scripts/run_release_gate.py --output-dir . --include-localtest-smoke --localtest-smoke-required`
 - Output artifacts:
   - `release_gate_report.json`
   - `release_gate_report.md`
@@ -30,6 +34,15 @@
 - `multi_user_isolation_smoke`
 - `credential_coverage_validity`
 - `migration_consistency`
+
+## Optional Local Smoke Check
+- Name: `localtest_auth_admin_smoke`
+- Command target: `scripts/smoke-localtest-auth-admin.ps1`
+- Enable flags:
+  - `--include-localtest-smoke`
+  - `--localtest-base-url http://127.0.0.1:28080` (default)
+  - `--localtest-smoke-required` (optional, default is non-required)
+  - `--powershell-binary powershell|pwsh`
 
 ## CI Integration
 - `.github/workflows/ci-cd.yml` runs `scripts/run_release_gate.py`.

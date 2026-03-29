@@ -153,12 +153,10 @@ Already landed on current branch:
 Remaining transition/compatibility zones:
 
 - `ConfigRepo.load_for_user()` still falls back to global `bot_config(id=1)` when `user_bot_config` is absent.
-- Legacy admin compatibility routes that instantiate `OpsService(scope_user_id=None)` still default to owner scope via `resolve_owner_user_id()`.
 - Some constructor paths still resolve owner user when `user_id` is omitted.
 
 Do not treat the following as durable invariants during V3:
 
-- owner fallback scope for admin compatibility routes must exist forever
 - global `bot_config(id=1)` fallback must exist forever
 - implicit owner resolution should be preferred over explicit per-user scope in new code
 
@@ -259,6 +257,10 @@ Use these as current contracts for branches with B1~B3 applied:
 - S5 session lifecycle:
   - token includes `token_version`; stale/revoked token yields `401 session_revoked`
   - admin action: `POST /api/admin/users/{user_id}/sessions/invalidate`
+  - admin role source: `users.is_admin` (transitional allowlist fallback permitted)
+  - role change endpoint: `POST /api/admin/users/{user_id}/role` with token-version bump
+  - retired legacy admin aliases: `/api/ops/summary`, `/api/admin/summary`, `/api/orders`, `/api/admin/orders`, `/api/pnl/daily`, `/api/admin/pnl/daily`, `/api/metrics/trade`, `/api/admin/metrics/trade` -> `410 legacy_endpoint_retired`
+  - retired rotate alias: `POST /api/ops/credentials/rotate` -> `410 legacy_endpoint_retired` (use `/api/admin/credentials/rotate`)
 - S6 order-attempt consistency:
   - normalized latest/next attempt calculations in shared helpers
   - runbook: `docs/order_attempts_unique_constraints_runbook_2026-03-22.md`

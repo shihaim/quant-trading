@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 
 import { AdminAuditLogViewer } from "../../../components/admin-audit-log-viewer";
 import { AdminUsersRuntimeTable } from "../../../components/admin-users-runtime-table";
-import { OpsDashboard } from "../../../components/ops-dashboard";
 import { opsApi } from "../../../lib/api";
 import { useAuthGuard } from "../../../lib/use-auth-guard";
 
@@ -79,12 +78,9 @@ export default function AdminOpsPage() {
   }
 
   return (
-    <>
-      <OpsDashboard accessToken={accessToken} onAuthError={handleAuthError} />
-      <section className="mx-auto grid w-[min(1200px,92vw)] gap-4 pb-7">
-        <AdminUsersRuntimeTable accessToken={accessToken} onAuthError={handleAuthError} />
-        <AdminAuditLogViewer accessToken={accessToken} onAuthError={handleAuthError} />
-      </section>
-    </>
+    <section className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
+      <AdminUsersRuntimeTable accessToken={accessToken} onAuthError={handleAuthError} />
+      <AdminAuditLogViewer accessToken={accessToken} onAuthError={handleAuthError} />
+    </section>
   );
 }

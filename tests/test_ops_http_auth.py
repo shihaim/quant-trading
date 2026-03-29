@@ -470,8 +470,9 @@ def test_admin_ops_routes_require_admin_role(tmp_path, monkeypatch):
             path="/api/ops/summary",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert status == 200
-        assert payload["trade_mode"] == "PAPER"
+        assert status == 410
+        assert payload["error"] == "legacy_endpoint_retired"
+        assert payload["replacement"] == "/api/admin/users/runtime-summary"
 
         status, payload = _request_json(
             port=server.server_port,
@@ -479,28 +480,41 @@ def test_admin_ops_routes_require_admin_role(tmp_path, monkeypatch):
             path="/api/orders?limit=10",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert status == 200
-        assert "count" in payload
+        assert status == 410
+        assert payload["error"] == "legacy_endpoint_retired"
+        assert payload["replacement"] == "/api/admin/users/{user_id}/orders"
 
         with Session() as session:
             member_id = session.execute(select(User.id).where(User.email == "member@example.com")).scalar_one()
             admin_id = session.execute(select(User.id).where(User.email == "admin@example.com")).scalar_one()
             logs = session.execute(select(AuditLog).order_by(AuditLog.id.asc())).scalars().all()
-            assert len(logs) == 3
-            assert [row.action for row in logs] == [ACTION_ADMIN_ACTION, ACTION_ADMIN_ACTION, ACTION_ADMIN_ACTION]
-            assert [row.actor_user_id for row in logs] == [member_id, admin_id, admin_id]
+            entries = []
+            for row in logs:
+                meta = json.loads(row.metadata_json)
+                entries.append(
+                    {
+                        "action": row.action,
+                        "actor_user_id": row.actor_user_id,
+                        "source": meta.get("source"),
+                        "outcome": meta.get("outcome"),
+                        "replacement": meta.get("replacement"),
+                    }
+                )
 
-            first_meta = json.loads(logs[0].metadata_json)
-            assert first_meta["source"] == "/api/ops/summary"
-            assert first_meta["outcome"] == "forbidden"
-
-            second_meta = json.loads(logs[1].metadata_json)
-            assert second_meta["source"] == "/api/ops/summary"
-            assert second_meta["outcome"] == "allowed"
-
-            third_meta = json.loads(logs[2].metadata_json)
-            assert third_meta["source"] == "/api/orders"
-            assert third_meta["outcome"] == "allowed"
+            assert any(
+                entry["action"] == ACTION_ADMIN_ACTION
+                and entry["actor_user_id"] == member_id
+                and entry["source"] == "/api/ops/summary"
+                and entry["outcome"] == "forbidden"
+                for entry in entries
+            )
+            assert any(
+                entry["action"] == ACTION_ADMIN_ACTION
+                and entry["actor_user_id"] == admin_id
+                and entry["source"] in {"/api/ops/summary", "/api/orders"}
+                and entry["outcome"] == "retired"
+                for entry in entries
+            )
     finally:
         server.shutdown()
         server.server_close()
@@ -881,7 +895,111 @@ def test_admin_can_invalidate_user_sessions_with_token_version_bump(tmp_path, mo
         engine.dispose()
 
 
-def test_admin_alias_routes_and_key_rotation_endpoint(tmp_path, monkeypatch):
+def test_admin_role_update_uses_db_role_and_revokes_existing_session(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "ops_api_admin_emails", [])
+
+    db_path = tmp_path / "ops-http-admin-role-update.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    handler_cls = create_ops_handler(
+        session_factory=Session,
+        trade_mode="PAPER",
+        allow_origin="*",
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        for email in ("db-admin@example.com", "member@example.com"):
+            status, _ = _request_json(
+                port=server.server_port,
+                method="POST",
+                path="/api/auth/signup",
+                payload={"email": email, "password": "strong-pass-123"},
+            )
+            assert status == 201
+
+        with Session() as session:
+            admin_user = session.execute(select(User).where(User.email == "db-admin@example.com")).scalar_one()
+            admin_user.is_admin = True
+            session.add(admin_user)
+            session.commit()
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "db-admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        assert payload["user"]["is_admin"] is True
+        admin_token = payload["access_token"]
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "member@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        assert payload["user"]["is_admin"] is False
+        member_token_before = payload["access_token"]
+
+        with Session() as session:
+            member_id = session.execute(select(User.id).where(User.email == "member@example.com")).scalar_one()
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path=f"/api/admin/users/{member_id}/role",
+            payload={"role": "admin"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert status == 200
+        assert payload["user_id"] == member_id
+        assert payload["is_admin"] is True
+        assert payload["changed"] is True
+        assert payload["invalidated_before_version"] == 1
+        assert payload["token_version"] == 2
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/me",
+            headers={"Authorization": f"Bearer {member_token_before}"},
+        )
+        assert status == 401
+        assert payload["message"] == "session_revoked"
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "member@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        assert payload["user"]["is_admin"] is True
+        member_token_after = payload["access_token"]
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/admin/users/runtime-summary",
+            headers={"Authorization": f"Bearer {member_token_after}"},
+        )
+        assert status == 200
+        assert payload["source"] == "/api/admin/users/runtime-summary"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        engine.dispose()
+
+
+def test_admin_alias_routes_retire_and_key_rotation_endpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
     monkeypatch.setattr(settings, "ops_api_credentials_encryption_key", "ops-key-v1")
     monkeypatch.setattr(settings, "ops_api_credentials_active_key_version", "v1")
@@ -924,9 +1042,9 @@ def test_admin_alias_routes_and_key_rotation_endpoint(tmp_path, monkeypatch):
             path="/api/admin/summary",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert status == 200
-        assert payload["trade_mode"] == "PAPER"
-        assert payload["api_budget"]["scope"] == "admin"
+        assert status == 410
+        assert payload["error"] == "legacy_endpoint_retired"
+        assert payload["replacement"] == "/api/admin/users/runtime-summary"
 
         status, _ = _request_json(
             port=server.server_port,
@@ -961,6 +1079,17 @@ def test_admin_alias_routes_and_key_rotation_endpoint(tmp_path, monkeypatch):
         )
         assert status == 200
         assert payload["is_valid"] is True
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/ops/credentials/rotate",
+            payload={"target_key_version": "v2", "dry_run": True},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert status == 410
+        assert payload["error"] == "legacy_endpoint_retired"
+        assert payload["replacement"] == "/api/admin/credentials/rotate"
 
         status, payload = _request_json(
             port=server.server_port,

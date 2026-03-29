@@ -45,12 +45,15 @@ class OpsService:
         self.session = session
         self.trade_mode = trade_mode.upper()
         self.config_repo = ConfigRepo(session)
-        if scope_user_id is None:
-            self.owner_user_id = self.config_repo.resolve_owner_user_id()
-        else:
-            self.owner_user_id = max(1, int(scope_user_id))
+        self.owner_user_id = max(1, int(scope_user_id)) if scope_user_id is not None else None
+
+    def _require_scope_user_id(self) -> int:
+        if self.owner_user_id is None:
+            raise ValueError("scope_user_id_required")
+        return int(self.owner_user_id)
 
     def list_orders(self, state: str | None = None, limit: int = 50) -> dict:
+        self._require_scope_user_id()
         q = (
             select(Order)
             .options(selectinload(Order.attempts))
@@ -64,6 +67,7 @@ class OpsService:
         return {"count": len(rows), "items": [to_order_item(row) for row in rows]}
 
     def get_pnl_daily(self, days: int = 30, tz: str = "UTC") -> dict:
+        self._require_scope_user_id()
         normalized_tz = (tz or "UTC").upper()
         normalized_days = max(1, min(365, days))
         rows = (
@@ -107,6 +111,7 @@ class OpsService:
         return {"tz": normalized_tz, "days": normalized_days, "items": items}
 
     def list_trade_metrics(self, limit: int = 200) -> dict:
+        self._require_scope_user_id()
         normalized_limit = max(1, min(1000, limit))
         rows = (
             self.session.execute(
@@ -122,6 +127,7 @@ class OpsService:
         return {"count": len(items), "limit": normalized_limit, "items": items}
 
     def get_summary(self, metrics_limit: int = 200, needs_review_limit: int = 10) -> dict:
+        self._require_scope_user_id()
         now_utc = datetime.now(timezone.utc)
         day_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start_utc = self._week_start_utc(now_utc)

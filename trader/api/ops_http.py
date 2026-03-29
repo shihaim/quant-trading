@@ -22,12 +22,12 @@ from trader.audit.service import (
 )
 from trader.auth.credentials import CredentialRotationError, CredentialValidationError, UserCredentialService
 from trader.auth.guard import authenticate_request
+from trader.auth.roles import AdminRoleResolver
 from trader.auth.service import (
     AuthConflictError,
     AuthCredentialsError,
     AuthService,
     AuthValidationError,
-    normalize_email,
     to_identity_payload,
 )
 from trader.auth.tokens import issue_access_token
@@ -171,18 +171,11 @@ def create_ops_handler(
                 "user": self._identity_payload(user=user),
             }
 
-        def _admin_email_set(self) -> set[str]:
-            return {
-                normalize_email(str(email))
-                for email in settings.ops_api_admin_emails
-                if str(email or "").strip()
-            }
-
-        def _is_admin_user(self, *, user) -> bool:
-            return normalize_email(user.email) in self._admin_email_set()
+        def _admin_role_resolver(self) -> AdminRoleResolver:
+            return AdminRoleResolver()
 
         def _identity_payload(self, *, user) -> dict:
-            return to_identity_payload(user, is_admin=self._is_admin_user(user=user))
+            return to_identity_payload(user, is_admin=self._admin_role_resolver().is_admin(user=user))
 
         def _credential_service(self, *, session: Session) -> UserCredentialService:
             return UserCredentialService(
@@ -279,6 +272,36 @@ def create_ops_handler(
             user_id = int(user_id_raw)
             return user_id if user_id > 0 else None
 
+        def _parse_admin_user_role_path(self, path: str) -> int | None:
+            prefix = "/api/admin/users/"
+            if not path.startswith(prefix):
+                return None
+            suffix = path[len(prefix) :]
+            if not suffix:
+                return None
+            parts = [part for part in suffix.split("/") if part]
+            if len(parts) != 2:
+                return None
+            user_id_raw, scope = parts
+            if scope != "role":
+                return None
+            if not user_id_raw.isdigit():
+                return None
+            user_id = int(user_id_raw)
+            return user_id if user_id > 0 else None
+
+        def _write_legacy_retired(self, *, path: str, replacement: str, message: str) -> None:
+            self._write_json(
+                410,
+                {
+                    "error": "legacy_endpoint_retired",
+                    "message": message,
+                    "source": path,
+                    "replacement": replacement,
+                    "sunset_date": "2026-04-30",
+                },
+            )
+
         def _admin_user_bot_status(self, *, session: Session, target_user_id: int, source: str) -> dict:
             repo = ConfigRepo(session)
             cfg = repo.load_for_user(target_user_id)
@@ -354,7 +377,7 @@ def create_ops_handler(
             user = self._require_authenticated_user(session=session)
             if user is None:
                 return None
-            if not self._is_admin_user(user=user):
+            if not self._admin_role_resolver().is_admin(user=user):
                 self._record_audit_action(
                     session=session,
                     actor_user_id=user.id,
@@ -521,7 +544,7 @@ def create_ops_handler(
                         else []
                     )
                     user_by_id = {user.id: user for user in target_users}
-                    admin_email_set = self._admin_email_set()
+                    role_resolver = self._admin_role_resolver()
                     credential_service = self._credential_service(session=session)
                     for item in items:
                         user_id = int(item.get("user_id", 0))
@@ -538,7 +561,7 @@ def create_ops_handler(
                                 "updated_at_utc": None,
                             }
                         else:
-                            role = "admin" if normalize_email(target_user.email) in admin_email_set else "member"
+                            role = role_resolver.role(user=target_user)
                             credential = credential_service.get_exchange_credential_status(user=target_user, exchange="UPBIT")
 
                         flags = item.setdefault("flags", {})
@@ -730,21 +753,10 @@ def create_ops_handler(
                         source=parsed.path,
                     ) is None:
                         return
-                    metrics_limit = _parse_positive_int(params.get("metrics_limit", [None])[0], fallback=200, max_value=1000)
-                    needs_review_limit = _parse_positive_int(
-                        params.get("needs_review_limit", [None])[0],
-                        fallback=10,
-                        max_value=100,
-                    )
-                    summary = service.get_summary(metrics_limit=metrics_limit, needs_review_limit=needs_review_limit)
-                    summary["api_budget"] = self._current_budget_payload(
-                        session=session,
-                        user=admin_user,
-                        scope=SCOPE_ADMIN,
-                    )
-                    self._write_json(
-                        200,
-                        summary,
+                    self._write_legacy_retired(
+                        path=parsed.path,
+                        replacement="/api/admin/users/runtime-summary",
+                        message="use_admin_users_runtime_summary",
                     )
                     self._record_audit_action(
                         session=session,
@@ -752,7 +764,12 @@ def create_ops_handler(
                         action=ACTION_ADMIN_ACTION,
                         target_type="admin_route",
                         target_id=parsed.path,
-                        metadata={"source": parsed.path, "method": "GET", "outcome": "allowed"},
+                        metadata={
+                            "source": parsed.path,
+                            "method": "GET",
+                            "outcome": "retired",
+                            "replacement": "/api/admin/users/runtime-summary",
+                        },
                     )
                     return
                 if parsed.path in {"/api/orders", "/api/admin/orders"}:
@@ -766,16 +783,23 @@ def create_ops_handler(
                         source=parsed.path,
                     ) is None:
                         return
-                    state = params.get("state", [None])[0]
-                    limit = _parse_positive_int(params.get("limit", [None])[0], fallback=50, max_value=500)
-                    self._write_json(200, service.list_orders(state=state, limit=limit))
+                    self._write_legacy_retired(
+                        path=parsed.path,
+                        replacement="/api/admin/users/{user_id}/orders",
+                        message="use_admin_user_scoped_orders",
+                    )
                     self._record_audit_action(
                         session=session,
                         actor_user_id=admin_user.id,
                         action=ACTION_ADMIN_ACTION,
                         target_type="admin_route",
                         target_id=parsed.path,
-                        metadata={"source": parsed.path, "method": "GET", "outcome": "allowed"},
+                        metadata={
+                            "source": parsed.path,
+                            "method": "GET",
+                            "outcome": "retired",
+                            "replacement": "/api/admin/users/{user_id}/orders",
+                        },
                     )
                     return
                 if parsed.path in {"/api/pnl/daily", "/api/admin/pnl/daily"}:
@@ -789,16 +813,23 @@ def create_ops_handler(
                         source=parsed.path,
                     ) is None:
                         return
-                    days = _parse_positive_int(params.get("days", [None])[0], fallback=30, max_value=365)
-                    tz = params.get("tz", ["UTC"])[0]
-                    self._write_json(200, service.get_pnl_daily(days=days, tz=tz))
+                    self._write_legacy_retired(
+                        path=parsed.path,
+                        replacement="/api/admin/users/{user_id}/pnl/daily",
+                        message="use_admin_user_scoped_pnl_daily",
+                    )
                     self._record_audit_action(
                         session=session,
                         actor_user_id=admin_user.id,
                         action=ACTION_ADMIN_ACTION,
                         target_type="admin_route",
                         target_id=parsed.path,
-                        metadata={"source": parsed.path, "method": "GET", "outcome": "allowed"},
+                        metadata={
+                            "source": parsed.path,
+                            "method": "GET",
+                            "outcome": "retired",
+                            "replacement": "/api/admin/users/{user_id}/pnl/daily",
+                        },
                     )
                     return
                 if parsed.path in {"/api/metrics/trade", "/api/admin/metrics/trade"}:
@@ -812,15 +843,23 @@ def create_ops_handler(
                         source=parsed.path,
                     ) is None:
                         return
-                    limit = _parse_positive_int(params.get("limit", [None])[0], fallback=200, max_value=1000)
-                    self._write_json(200, service.list_trade_metrics(limit=limit))
+                    self._write_legacy_retired(
+                        path=parsed.path,
+                        replacement="/api/admin/users/{user_id}/metrics/trade",
+                        message="use_admin_user_scoped_trade_metrics",
+                    )
                     self._record_audit_action(
                         session=session,
                         actor_user_id=admin_user.id,
                         action=ACTION_ADMIN_ACTION,
                         target_type="admin_route",
                         target_id=parsed.path,
-                        metadata={"source": parsed.path, "method": "GET", "outcome": "allowed"},
+                        metadata={
+                            "source": parsed.path,
+                            "method": "GET",
+                            "outcome": "retired",
+                            "replacement": "/api/admin/users/{user_id}/metrics/trade",
+                        },
                     )
                     return
                 self._write_json(404, {"error": "not_found"})
@@ -912,6 +951,88 @@ def create_ops_handler(
                             "token_version": int(target_user.token_version),
                             "invalidated_before_version": previous_version,
                             "reason": reason,
+                            "source": parsed.path,
+                        },
+                    )
+                    return
+                parsed_admin_role = self._parse_admin_user_role_path(parsed.path)
+                if parsed_admin_role is not None:
+                    admin_user = self._require_admin_user(session=session)
+                    if admin_user is None:
+                        return
+                    if self._enforce_request_budget(
+                        session=session,
+                        user=admin_user,
+                        scope=SCOPE_ADMIN,
+                        source=parsed.path,
+                    ) is None:
+                        return
+                    target_user = session.get(User, parsed_admin_role)
+                    if target_user is None:
+                        self._write_json(404, {"error": "not_found", "message": "user_not_found"})
+                        return
+                    payload = self._read_json_body()
+                    requested_role = str(payload.get("role", "")).strip().lower()
+                    requested_is_admin = payload.get("is_admin")
+                    if requested_role:
+                        if requested_role in {"admin"}:
+                            next_is_admin = True
+                        elif requested_role in {"member", "user"}:
+                            next_is_admin = False
+                        else:
+                            self._write_json(400, {"error": "invalid_role", "message": "role_must_be_admin_or_member"})
+                            return
+                    elif isinstance(requested_is_admin, bool):
+                        next_is_admin = bool(requested_is_admin)
+                    else:
+                        self._write_json(
+                            400,
+                            {
+                                "error": "invalid_role",
+                                "message": "provide_role_or_is_admin",
+                            },
+                        )
+                        return
+
+                    previous_is_admin = bool(getattr(target_user, "is_admin", False))
+                    previous_version = max(1, int(getattr(target_user, "token_version", 1) or 1))
+                    changed = previous_is_admin != next_is_admin
+                    if changed:
+                        target_user.is_admin = next_is_admin
+                        target_user.token_version = previous_version + 1
+                        session.add(target_user)
+                        session.commit()
+                        session.refresh(target_user)
+
+                    self._record_audit_action(
+                        session=session,
+                        actor_user_id=admin_user.id,
+                        action=ACTION_ADMIN_ACTION,
+                        target_type="admin_route",
+                        target_id=parsed.path,
+                        metadata={
+                            "source": parsed.path,
+                            "method": "POST",
+                            "outcome": "allowed",
+                            "target_user_id": parsed_admin_role,
+                            "role_before": "admin" if previous_is_admin else "member",
+                            "role_after": "admin" if next_is_admin else "member",
+                            "changed": changed,
+                            "reason": "role_changed",
+                            "token_version_before": previous_version,
+                            "token_version_after": int(getattr(target_user, "token_version", previous_version)),
+                        },
+                    )
+                    self._write_json(
+                        200,
+                        {
+                            "user_id": parsed_admin_role,
+                            "role": "admin" if bool(getattr(target_user, "is_admin", False)) else "member",
+                            "is_admin": bool(getattr(target_user, "is_admin", False)),
+                            "changed": changed,
+                            "token_version": int(getattr(target_user, "token_version", previous_version)),
+                            "invalidated_before_version": previous_version if changed else None,
+                            "reason": "role_changed",
                             "source": parsed.path,
                         },
                     )
@@ -1012,7 +1133,37 @@ def create_ops_handler(
                     )
                     self._write_json(200, result)
                     return
-                if parsed.path in {"/api/admin/credentials/rotate", "/api/ops/credentials/rotate"}:
+                if parsed.path == "/api/ops/credentials/rotate":
+                    admin_user = self._require_admin_user(session=session)
+                    if admin_user is None:
+                        return
+                    if self._enforce_request_budget(
+                        session=session,
+                        user=admin_user,
+                        scope=SCOPE_ADMIN,
+                        source=parsed.path,
+                    ) is None:
+                        return
+                    self._write_legacy_retired(
+                        path=parsed.path,
+                        replacement="/api/admin/credentials/rotate",
+                        message="use_admin_credentials_rotate",
+                    )
+                    self._record_audit_action(
+                        session=session,
+                        actor_user_id=admin_user.id,
+                        action=ACTION_ADMIN_ACTION,
+                        target_type="admin_route",
+                        target_id=parsed.path,
+                        metadata={
+                            "source": parsed.path,
+                            "method": "POST",
+                            "outcome": "retired",
+                            "replacement": "/api/admin/credentials/rotate",
+                        },
+                    )
+                    return
+                if parsed.path == "/api/admin/credentials/rotate":
                     admin_user = self._require_admin_user(session=session)
                     if admin_user is None:
                         return

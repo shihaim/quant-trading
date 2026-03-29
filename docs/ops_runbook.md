@@ -474,3 +474,97 @@ Additional env keys now required for secure runtime behavior:
 - `OPS_API_AUTH_TOKEN_TTL_SECONDS`
 - `OPS_API_CREDENTIALS_ENCRYPTION_KEY`
 - `OPS_API_CREDENTIALS_KEYRING_JSON`
+
+## 12) Admin Role Operation (DB-first, 2026-03-28)
+
+This section is the operational source of truth for admin account assignment after S5 follow-up hardening.
+
+### 12.1 Role source policy
+
+- Primary source: `users.is_admin` (DB).
+- Fallback only: `OPS_API_ADMIN_EMAILS` (temporary compatibility/emergency use).
+- Target state: manage admin role through DB/API, not through persistent env allowlist edits.
+
+### 12.2 Admin grant/revoke via API (recommended)
+
+Prerequisite:
+- Operator token must already have admin permission.
+
+Grant:
+
+```http
+POST /api/admin/users/{user_id}/role
+Content-Type: application/json
+Authorization: Bearer <admin_token>
+
+{"role":"admin"}
+```
+
+Revoke:
+
+```http
+POST /api/admin/users/{user_id}/role
+Content-Type: application/json
+Authorization: Bearer <admin_token>
+
+{"role":"member"}
+```
+
+Behavior note:
+- Role change bumps `users.token_version`.
+- Existing tokens for the target user are revoked immediately.
+- Expected response for old token: `401 unauthorized` with `message=session_revoked`.
+
+### 12.3 DB emergency path (when admin API is unavailable)
+
+PostgreSQL:
+
+```sql
+-- grant
+UPDATE users SET is_admin = TRUE WHERE email = '<target-email>';
+
+-- revoke
+UPDATE users SET is_admin = FALSE WHERE email = '<target-email>';
+```
+
+If the target user is currently signed in, revoke active sessions:
+
+```sql
+UPDATE users
+SET token_version = token_version + 1
+WHERE email = '<target-email>';
+```
+
+### 12.4 Verification checklist
+
+1. Confirm role state:
+
+```sql
+SELECT id, email, is_admin, token_version
+FROM users
+WHERE email IN ('<operator-email>', '<target-email>')
+ORDER BY id;
+```
+
+2. Confirm admin boundary:
+- target login returns `user.is_admin=true` after grant.
+- target can call `GET /api/admin/users/runtime-summary`.
+- non-admin account receives `403` on `/api/admin/*`.
+
+3. Confirm retired aliases:
+- `/api/ops/summary` returns `410 legacy_endpoint_retired`.
+- `/api/admin/summary` returns `410 legacy_endpoint_retired`.
+- `/api/ops/credentials/rotate` returns `410 legacy_endpoint_retired`.
+
+### 12.5 Rollback
+
+- API rollback: call `/api/admin/users/{user_id}/role` with `{"role":"member"}`.
+- DB rollback: set `is_admin=FALSE` for mistaken users and bump `token_version`.
+- If fallback allowlist was temporarily used, remove the entry from `OPS_API_ADMIN_EMAILS` and redeploy.
+
+### 12.6 Release gate linkage
+
+- Local smoke script: `scripts/smoke-localtest-auth-admin.ps1`
+- Release gate optional check:
+  - `python scripts/run_release_gate.py --output-dir . --include-localtest-smoke`
+  - required mode: add `--localtest-smoke-required`

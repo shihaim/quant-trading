@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from trader.release_gate import default_checks, run_release_gate, write_report_files
+from trader.release_gate import ReleaseGateCheck, default_checks, run_release_gate, write_report_files
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,14 +21,52 @@ def parse_args() -> argparse.Namespace:
         default=4000,
         help="Max stdout/stderr tail chars to keep per check result.",
     )
+    parser.add_argument(
+        "--include-localtest-smoke",
+        action="store_true",
+        help="Include local Docker smoke check using scripts/smoke-localtest-auth-admin.ps1.",
+    )
+    parser.add_argument(
+        "--localtest-base-url",
+        default="http://127.0.0.1:28080",
+        help="Base URL passed to scripts/smoke-localtest-auth-admin.ps1.",
+    )
+    parser.add_argument(
+        "--localtest-smoke-required",
+        action="store_true",
+        help="Mark local Docker smoke check as required.",
+    )
+    parser.add_argument(
+        "--powershell-binary",
+        default="powershell",
+        help="PowerShell executable to run local smoke check (for example: powershell, pwsh).",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     cwd = Path(__file__).resolve().parents[1]
+    checks = list(default_checks())
+    if args.include_localtest_smoke:
+        checks.append(
+            ReleaseGateCheck(
+                name="localtest_auth_admin_smoke",
+                description="Local Docker auth/admin/session smoke via scripts/smoke-localtest-auth-admin.ps1",
+                required=bool(args.localtest_smoke_required),
+                command=[
+                    str(args.powershell_binary),
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "scripts/smoke-localtest-auth-admin.ps1",
+                    "-BaseUrl",
+                    str(args.localtest_base_url),
+                ],
+            )
+        )
     report = run_release_gate(
-        checks=default_checks(),
+        checks=checks,
         cwd=cwd,
         max_output_chars=int(args.max_output_chars),
     )

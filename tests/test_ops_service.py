@@ -174,7 +174,7 @@ def test_ops_summary_aggregates_counts_pnl_and_metrics():
     )
     session.commit()
 
-    summary = OpsService(session=session, trade_mode="REAL").get_summary(metrics_limit=200, needs_review_limit=10)
+    summary = OpsService(session=session, trade_mode="REAL", scope_user_id=1).get_summary(metrics_limit=200, needs_review_limit=10)
 
     assert summary["trade_mode"] == "REAL"
     assert summary["bot"]["status"] == "RUNNING"
@@ -219,7 +219,7 @@ def test_ops_summary_marks_halted_when_disabled_and_loss_limit_breached():
     )
     session.commit()
 
-    summary = OpsService(session=session, trade_mode="PAPER").get_summary()
+    summary = OpsService(session=session, trade_mode="PAPER", scope_user_id=1).get_summary()
 
     assert summary["bot"]["status"] == "HALTED"
     assert summary["halt"]["is_halted"] is True
@@ -257,7 +257,7 @@ def test_list_orders_prefers_latest_attempt_fields():
     )
     session.commit()
 
-    payload = OpsService(session=session, trade_mode="REAL").list_orders(limit=10)
+    payload = OpsService(session=session, trade_mode="REAL", scope_user_id=1).list_orders(limit=10)
 
     assert payload["count"] == 1
     item = payload["items"][0]

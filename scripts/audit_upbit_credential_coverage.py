@@ -5,7 +5,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.orm import sessionmaker
 
 from trader.auth.credentials import CredentialValidationError, UserCredentialService
@@ -78,10 +78,7 @@ def parse_args() -> argparse.Namespace:
 def collect_rows(args: argparse.Namespace) -> dict[str, object]:
     engine = create_engine(args.database_url, future=True)
     if bool(args.bootstrap_empty_schema):
-        inspector = inspect(engine)
-        table_names = set(inspector.get_table_names())
-        if "users" not in table_names or "user_exchange_credentials" not in table_names:
-            Base.metadata.create_all(bind=engine)
+        _bootstrap_or_patch_schema(engine)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     rows: list[UserAuditRow] = []
     key_versions: dict[str, int] = {}
@@ -154,6 +151,32 @@ def collect_rows(args: argparse.Namespace) -> dict[str, object]:
         "missing": missing,
         "invalid": invalid,
     }
+
+
+def _bootstrap_or_patch_schema(engine) -> None:
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "users" not in table_names or "user_exchange_credentials" not in table_names:
+        Base.metadata.create_all(bind=engine)
+        inspector = inspect(engine)
+        table_names = set(inspector.get_table_names())
+
+    if "users" in table_names:
+        user_cols = {col["name"] for col in inspector.get_columns("users")}
+        with engine.begin() as conn:
+            if "token_version" not in user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1"))
+            if "is_admin" not in user_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0"))
+            conn.execute(text("UPDATE users SET token_version = CASE WHEN token_version IS NULL OR token_version <= 0 THEN 1 ELSE token_version END"))
+            conn.execute(text("UPDATE users SET is_admin = CASE WHEN is_admin IS NULL THEN 0 ELSE is_admin END"))
+
+    if "user_exchange_credentials" in table_names:
+        cred_cols = {col["name"] for col in inspector.get_columns("user_exchange_credentials")}
+        if "key_version" not in cred_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE user_exchange_credentials ADD COLUMN key_version VARCHAR(32) DEFAULT 'v1'"))
+                conn.execute(text("UPDATE user_exchange_credentials SET key_version = 'v1' WHERE key_version IS NULL OR TRIM(key_version) = ''"))
 
 
 def _print_text(report: dict[str, object], limit: int) -> None:
