@@ -51,7 +51,7 @@ COLUMN_DOCS_EN = {
         "password_hash": "PBKDF2 password hash string.",
         "display_name": "Optional profile display name.",
         "is_active": "Whether login is allowed for this user.",
--        "is_admin": "DB-backed admin role flag.",
+        "is_admin": "DB-backed admin role flag.",
         "token_version": "Monotonic token version for server-side session invalidation.",
         "created_at": "Creation timestamp.",
         "updated_at": "Last update timestamp.",
