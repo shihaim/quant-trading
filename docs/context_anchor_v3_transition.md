@@ -257,7 +257,7 @@ Use these as current contracts for branches with B1~B3 applied:
 - S5 session lifecycle:
   - token includes `token_version`; stale/revoked token yields `401 session_revoked`
   - admin action: `POST /api/admin/users/{user_id}/sessions/invalidate`
-  - admin role source: `users.is_admin` (transitional allowlist fallback permitted)
+  - admin role source: `users.is_admin` (DB-backed)
   - role change endpoint: `POST /api/admin/users/{user_id}/role` with token-version bump
   - retired legacy admin aliases: `/api/ops/summary`, `/api/admin/summary`, `/api/orders`, `/api/admin/orders`, `/api/pnl/daily`, `/api/admin/pnl/daily`, `/api/metrics/trade`, `/api/admin/metrics/trade` -> `410 legacy_endpoint_retired`
   - retired rotate alias: `POST /api/ops/credentials/rotate` -> `410 legacy_endpoint_retired` (use `/api/admin/credentials/rotate`)

@@ -269,3 +269,31 @@ def test_list_orders_prefers_latest_attempt_fields():
     assert item["upbit_uuid"] == "uuid-attempt-2"
     assert item["attempt_no"] == 2
     assert item["attempt_submit_reason"] == "REPRICE"
+
+
+def test_user_scoped_ops_methods_require_scope_user_id():
+    session = _session()
+    service = OpsService(session=session, trade_mode="PAPER")
+
+    with pytest.raises(ValueError, match="scope_user_id_required"):
+        service.list_orders(limit=10)
+    with pytest.raises(ValueError, match="scope_user_id_required"):
+        service.get_pnl_daily(days=7, tz="UTC")
+    with pytest.raises(ValueError, match="scope_user_id_required"):
+        service.list_trade_metrics(limit=10)
+    with pytest.raises(ValueError, match="scope_user_id_required"):
+        service.get_summary()
+
+
+def test_admin_runtime_summary_allows_unscoped_service():
+    session = _session()
+    service = OpsService(session=session, trade_mode="PAPER")
+
+    payload = service.list_admin_runtime_summary(
+        budget_limit=120,
+        budget_window_seconds=60,
+        max_users=10,
+    )
+
+    assert payload["count"] == 0
+    assert payload["items"] == []

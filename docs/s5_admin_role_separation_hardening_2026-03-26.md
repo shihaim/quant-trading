@@ -24,7 +24,7 @@
 1. DB-backed admin role
 - Added `users.is_admin` column in model and lightweight migration path.
 - Added `AdminRoleResolver` (`trader/auth/roles.py`).
-- Resolver strategy (transition): `users.is_admin` OR `OPS_API_ADMIN_EMAILS` allowlist.
+- Resolver strategy (current): `users.is_admin` only.
 
 2. Role-change API and session lifecycle
 - Added `POST /api/admin/users/{user_id}/role`.
@@ -74,4 +74,3 @@
 
 3. `role 변경 시 세션 동작 예측 가능`
 - satisfied by role-change endpoint policy (`token_version` bump + session revocation).
-
