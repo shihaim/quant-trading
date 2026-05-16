@@ -10,7 +10,7 @@
 - GitHub-hosted 배포 절차: `docs/github_hosted_deployment.md`
 - PC 간 PostgreSQL 마이그레이션 런북: `docs/cross_pc_postgres_migration_runbook_2026-03-02.md`
 - `order_attempts` 운영 DB 반영 기록: `docs/order_attempts_rollout_2026-03-04.md`
-- 현재 운영 기본 경로는 GitHub-hosted Actions GHCR image publish + 운영 PC `deploy.ps1` scheduled pull/up + Docker Compose
+- 현재 운영 기본 경로는 GitHub-hosted Actions GHCR image publish + 운영 PC `deploy.ps1` 정기/수동 pull-up + Docker Compose
 - Compose 기본 DB는 PostgreSQL
 - 로컬 CLI 직접 실행 시 `DATABASE_URL`이 없으면 여전히 `sqlite:///./trading.db`로 fallback 가능
 
@@ -24,10 +24,10 @@
 
 ## 2) 배포 후 기본 확인 절차
 
-배포 트리거는 `main` 브랜치 push 이후 운영 PC의 scheduled `deploy.ps1` 실행이다. 배포 직후 아래 순서로 확인한다.
+정기 배포는 `main` 브랜치 push 이후 매주 토요일 오전 6시 작업 스케줄러의 `deploy.ps1` 실행으로 반영한다. hotfix는 GitHub Actions `ci`와 `build_and_push` 성공 확인 후 운영 PC에서 `deploy.ps1`을 수동 실행한다. 배포 직후 아래 순서로 확인한다.
 
 1. GitHub Actions `ci`와 `build_and_push` 성공 여부 확인
-2. 운영 PC 작업 스케줄러의 `deploy.ps1` 최근 실행 결과 확인
+2. 정기 배포는 작업 스케줄러의 `deploy.ps1` 최근 실행 결과 확인, hotfix는 수동 `deploy.ps1` 실행 결과 확인
 3. 컨테이너 기동 상태 확인
 4. PostgreSQL bootstrap 상태 확인
 5. 웹/API 라우팅 확인

@@ -9,7 +9,7 @@ push to main
   -> GitHub-hosted runner runs CI
   -> GitHub-hosted runner builds Docker images
   -> images are pushed to GHCR
-  -> private Windows PC runs deploy.ps1 on a schedule
+  -> private Windows PC runs deploy.ps1 on the regular deployment schedule
   -> docker compose pulls images and restarts services
   -> Caddy serves the existing domain
 ```
@@ -63,9 +63,9 @@ docker login ghcr.io -u shihaim
 
 Enter the PAT as the password.
 
-## Manual Deploy Test
+## Manual Deploy and Hotfix
 
-Run this from the repository root:
+Run this from the repository root for a one-time manual deploy, including hotfix releases that should not wait for the regular deployment window:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File D:\quant-trading\deploy.ps1
@@ -80,7 +80,7 @@ The script:
 
 ## Windows Task Scheduler
 
-Recommended initial schedule: every 5 minutes.
+Regular deployment schedule: every Saturday at 06:00.
 
 Use these task settings:
 
@@ -95,7 +95,7 @@ Start in:
 D:\quant-trading
 ```
 
-After the deployment path is stable, the interval can be adjusted.
+For urgent hotfixes, push the fix, wait for `ci` and `build_and_push` to publish the GHCR images, then run `deploy.ps1` manually instead of changing the schedule.
 
 ## Domain and Caddy
 
