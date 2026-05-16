@@ -1,7 +1,7 @@
-# Ops Runbook
+# 운영 런북
 
 - 작성일: 2026-02-26
-- 최종 수정: 2026-03-04
+- 최종 수정: 2026-05-16
 - 대상: 운영/개발 공용
 
 ## 1) 관련 문서와 현재 운영 전제
@@ -9,7 +9,7 @@
 - 인프라 변경 상세: `docs/infra_handover_2026-02-28.md`
 - PC 간 PostgreSQL 마이그레이션 런북: `docs/cross_pc_postgres_migration_runbook_2026-03-02.md`
 - `order_attempts` 운영 DB 반영 기록: `docs/order_attempts_rollout_2026-03-04.md`
-- 현재 운영 기본 경로는 GitHub Actions + self-hosted runner + Docker Compose
+- 현재 운영 기본 경로는 GitHub Actions + 자체 호스팅 runner + Docker Compose
 - Compose 기본 DB는 PostgreSQL
 - 로컬 CLI 직접 실행 시 `DATABASE_URL`이 없으면 여전히 `sqlite:///./trading.db`로 fallback 가능
 
@@ -262,6 +262,18 @@ docker logs qt-ops-api --tail 200
 docker logs qt-trader --tail 200
 ```
 
+6. KST helper view 정리 및 DB timezone 설정
+
+- 목적: 앱이 관리하는 `*_kst` 조회용 view를 제거하고, 현재 접속 DB와 현재 접속 role의 기본 timezone을 `Asia/Seoul`로 맞춘다.
+- 스크립트: `scripts/sql/ops_drop_views_set_timezone_asia_seoul.sql`
+- 안전 범위: repo가 관리하는 KST helper view allowlist만 `DROP VIEW IF EXISTS`로 제거한다. 운영자가 별도로 만든 `public` view는 삭제 대상이 아니다.
+- 권한 주의: `ALTER DATABASE` 또는 `ALTER ROLE` 권한이 없는 계정으로 실행하면 실패할 수 있다. 실패 시 superuser 또는 DB owner 계정으로 실행한다.
+- 실행 전 권장: 스키마 변경과 동일하게 `pg_dump -Fc` 백업을 먼저 남긴다.
+
+```powershell
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/ops_drop_views_set_timezone_asia_seoul.sql
+```
+
 ## 8) DB 백업, 복원, 롤백
 
 ### 8.1 PostgreSQL (현재 기본 운영 경로)
@@ -446,13 +458,13 @@ ORDER BY o.updated_at DESC;
 - `docs/order_attempts_ops_checks_2026-03-04.md`
 - `docs/order_state_consistency_dev_2026-03-04.md`
 
-## 11) V2 Foundation Update (2026-03-05)
+## 11) V2 Foundation 갱신 사항 (2026-03-05)
 
-This runbook originally focused on pre-V2 and order-attempt rollout operations.
-After the V2 foundation completion, use the following additional references and checks:
+이 런북은 원래 V2 이전 운영과 `order_attempts` rollout 절차를 중심으로 작성되었다.
+V2 foundation 완료 이후에는 아래 추가 참고 문서와 확인 항목을 함께 사용한다.
 
-- New handover doc: `docs/v2_foundation_handover_2026-03-05.md`
-- New authenticated endpoints:
+- 신규 인수인계 문서: `docs/v2_foundation_handover_2026-03-05.md`
+- 신규 인증 API:
   - `POST /api/auth/signup`
   - `POST /api/auth/login`
   - `GET /api/me`
@@ -462,33 +474,34 @@ After the V2 foundation completion, use the following additional references and 
   - `GET /api/me/pnl/daily`
   - `GET /api/me/metrics/trade`
 
-Operational note for current transition period:
+현재 전환 기간 운영 메모:
 
-- `/api/me/*` read endpoints are fully user-scoped. Legacy owner bridge has been removed.
-- Non-admin users cannot access `/ops` and `/api/admin/*`.
-- Missing/invalid user credential setup returns `403 credentials_required` or `403 credentials_invalid`.
+- `/api/me/*` 읽기 endpoint는 완전히 사용자 scope 기준이다. Legacy owner bridge는 제거되었다.
+- 일반 사용자는 `/ops`와 `/api/admin/*`에 접근할 수 없다.
+- 사용자 자격증명이 없거나 유효하지 않으면 `403 credentials_required` 또는 `403 credentials_invalid`를 반환한다.
+- V3 호환성 fallback 정리 계획: `docs/f2_v3_compatibility_fallback_cleanup_plan_2026-05-16.md`.
 
-Additional env keys now required for secure runtime behavior:
+안전한 런타임 동작을 위해 아래 env key가 추가로 필요하다:
 
 - `OPS_API_AUTH_SECRET`
 - `OPS_API_AUTH_TOKEN_TTL_SECONDS`
 - `OPS_API_CREDENTIALS_ENCRYPTION_KEY`
 - `OPS_API_CREDENTIALS_KEYRING_JSON`
 
-## 12) Admin Role Operation (DB-first, 2026-03-28)
+## 12) Admin role 운영 (DB 우선, 2026-03-28)
 
-This section is the operational source of truth for admin account assignment after S5 follow-up hardening.
+이 섹션은 S5 후속 hardening 이후 admin 계정 부여/회수의 운영 기준이다.
 
-### 12.1 Role source policy
+### 12.1 Role source 정책
 
-- Primary source: `users.is_admin` (DB).
-- Fallback only: `OPS_API_ADMIN_EMAILS` (temporary compatibility/emergency use).
-- Target state: manage admin role through DB/API, not through persistent env allowlist edits.
+- 주 소스: `users.is_admin` (DB).
+- 대체 경로 전용: `OPS_API_ADMIN_EMAILS` (임시 호환성/비상용).
+- 목표 상태: 영구 env allowlist 편집이 아니라 DB/API로 admin role을 관리한다.
 
-### 12.2 Admin grant/revoke via API (recommended)
+### 12.2 API를 통한 Admin 부여/회수 (권장)
 
-Prerequisite:
-- Operator token must already have admin permission.
+전제:
+- 운영자 token은 이미 admin 권한을 가지고 있어야 한다.
 
 Grant:
 
@@ -510,12 +523,12 @@ Authorization: Bearer <admin_token>
 {"role":"member"}
 ```
 
-Behavior note:
-- Role change bumps `users.token_version`.
-- Existing tokens for the target user are revoked immediately.
-- Expected response for old token: `401 unauthorized` with `message=session_revoked`.
+동작 메모:
+- Role 변경은 `users.token_version`을 증가시킨다.
+- 대상 사용자의 기존 token은 즉시 무효화된다.
+- 기존 token의 예상 응답: `message=session_revoked`가 포함된 `401 unauthorized`.
 
-### 12.3 DB emergency path (when admin API is unavailable)
+### 12.3 DB 비상 경로 (admin API 사용 불가 시)
 
 PostgreSQL:
 
@@ -527,7 +540,7 @@ UPDATE users SET is_admin = TRUE WHERE email = '<target-email>';
 UPDATE users SET is_admin = FALSE WHERE email = '<target-email>';
 ```
 
-If the target user is currently signed in, revoke active sessions:
+대상 사용자가 현재 로그인 중이면 활성 session을 무효화한다:
 
 ```sql
 UPDATE users
@@ -535,9 +548,9 @@ SET token_version = token_version + 1
 WHERE email = '<target-email>';
 ```
 
-### 12.4 Verification checklist
+### 12.4 검증 checklist
 
-1. Confirm role state:
+1. role 상태 확인:
 
 ```sql
 SELECT id, email, is_admin, token_version
@@ -546,25 +559,25 @@ WHERE email IN ('<operator-email>', '<target-email>')
 ORDER BY id;
 ```
 
-2. Confirm admin boundary:
-- target login returns `user.is_admin=true` after grant.
-- target can call `GET /api/admin/users/runtime-summary`.
-- non-admin account receives `403` on `/api/admin/*`.
+2. admin 경계 확인:
+- 부여 후 대상 로그인 응답에 `user.is_admin=true`가 포함된다.
+- 대상은 `GET /api/admin/users/runtime-summary`를 호출할 수 있다.
+- 일반 계정은 `/api/admin/*`에서 `403`을 받는다.
 
-3. Confirm retired aliases:
+3. retired alias 확인:
 - `/api/ops/summary` returns `410 legacy_endpoint_retired`.
 - `/api/admin/summary` returns `410 legacy_endpoint_retired`.
 - `/api/ops/credentials/rotate` returns `410 legacy_endpoint_retired`.
 
-### 12.5 Rollback
+### 12.5 Rollback 절차
 
-- API rollback: call `/api/admin/users/{user_id}/role` with `{"role":"member"}`.
-- DB rollback: set `is_admin=FALSE` for mistaken users and bump `token_version`.
-- If fallback allowlist was temporarily used, remove the entry from `OPS_API_ADMIN_EMAILS` and redeploy.
+- API rollback: `/api/admin/users/{user_id}/role`에 `{"role":"member"}`를 호출한다.
+- DB rollback: 잘못 부여된 사용자에 대해 `is_admin=FALSE`로 설정하고 `token_version`을 증가시킨다.
+- 대체 allowlist를 임시 사용했다면 `OPS_API_ADMIN_EMAILS`에서 항목을 제거하고 재배포한다.
 
-### 12.6 Release gate linkage
+### 12.6 Release gate 연결
 
-- Local smoke script: `scripts/smoke-localtest-auth-admin.ps1`
-- Release gate optional check:
+- 로컬 smoke script: `scripts/smoke-localtest-auth-admin.ps1`
+- Release gate 선택 확인:
   - `python scripts/run_release_gate.py --output-dir . --include-localtest-smoke`
-  - required mode: add `--localtest-smoke-required`
+  - 필수 모드: `--localtest-smoke-required`를 추가한다.

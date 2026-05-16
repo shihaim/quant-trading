@@ -23,13 +23,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval", type=int, default=10, help="seconds between loops for smoke")
     parser.add_argument("--market", default="", help="target market, default from runtime config")
     parser.add_argument("--distance-pct", type=float, default=0.05, help="far limit distance from last price")
+    parser.add_argument(
+        "--user-id",
+        type=int,
+        default=None,
+        help="explicit user id for V3 user-scoped rehearsal; omitted keeps legacy owner fallback",
+    )
     return parser.parse_args()
 
 
-def _build_runtime():
+def _resolve_rehearsal_user_id(config_repo: ConfigRepo, *, explicit_user_id: int | None) -> int:
+    if explicit_user_id is not None:
+        return max(1, int(explicit_user_id))
+    return int(config_repo.resolve_owner_user_id())
+
+
+def _build_runtime(*, explicit_user_id: int | None = None):
     session = SessionLocal()
     config_repo = ConfigRepo(session)
-    user_id = config_repo.resolve_owner_user_id()
+    user_id = _resolve_rehearsal_user_id(config_repo, explicit_user_id=explicit_user_id)
     upbit = UpbitClient(
         base_url=settings.upbit_base_url,
         access_key=settings.upbit_access_key,
@@ -51,8 +63,8 @@ def _build_runtime():
     return session, upbit, candle, portfolio, execution, reconcile, config_repo, user_id
 
 
-def run_smoke(minutes: int, interval: int) -> None:
-    session, upbit, candle, _, _, reconcile, config_repo, user_id = _build_runtime()
+def run_smoke(minutes: int, interval: int, *, user_id: int | None = None) -> None:
+    session, upbit, candle, _, _, reconcile, config_repo, user_id = _build_runtime(explicit_user_id=user_id)
     try:
         cfg = config_repo.load_for_user(user_id)
         end_at = time.time() + (minutes * 60)
@@ -76,10 +88,10 @@ def run_smoke(minutes: int, interval: int) -> None:
         session.close()
 
 
-def run_order_cancel(market: str, distance_pct: float) -> None:
+def run_order_cancel(market: str, distance_pct: float, *, user_id: int | None = None) -> None:
     if settings.trade_mode != "REAL":
         raise ValueError("order-cancel scenario requires TRADE_MODE=REAL")
-    session, upbit, candle, portfolio, execution, _, config_repo, user_id = _build_runtime()
+    session, upbit, candle, portfolio, execution, _, config_repo, user_id = _build_runtime(explicit_user_id=user_id)
     try:
         cfg = config_repo.load_for_user(user_id)
         target_market = market or (cfg.markets[0] if cfg.markets else "KRW-BTC")
@@ -131,10 +143,10 @@ def main() -> None:
     run_lightweight_migrations()
     args = parse_args()
     if args.scenario == "smoke":
-        run_smoke(minutes=args.minutes, interval=args.interval)
+        run_smoke(minutes=args.minutes, interval=args.interval, user_id=args.user_id)
         return
     if args.scenario == "order-cancel":
-        run_order_cancel(market=args.market, distance_pct=args.distance_pct)
+        run_order_cancel(market=args.market, distance_pct=args.distance_pct, user_id=args.user_id)
         return
     raise ValueError(f"unsupported scenario: {args.scenario}")
 

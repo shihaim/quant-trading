@@ -114,7 +114,7 @@ export default function OrdersPage() {
         </div>
         {payload?.scope ? (
           <p className="mt-2 text-xs text-muted">
-            Scope: {payload.scope.mode} / user {payload.scope.user_id} / owner {payload.scope.owner_user_id}
+            Scope: {payload.scope.mode} / user {payload.scope.user_id} / compatibility user {payload.scope.owner_user_id}
           </p>
         ) : null}
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}

@@ -1,7 +1,7 @@
 # S5 인증/세션 수명주기 하드닝 2026-03-22
 
 - story_id: S5
-- scope: token expiry UX, logout baseline, client storage policy
+- 범위: token 만료 UX, logout baseline, client 저장소 정책
 
 ## 결정 사항
 

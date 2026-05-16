@@ -1,7 +1,7 @@
 # S6 order_attempts 정합성 하드닝 2026-03-22
 
 - story_id: S6
-- scope: latest-attempt 해석 공용화, 정합성 점검 스크립트 추가
+- 범위: latest-attempt 해석 공용화, 정합성 점검 스크립트 추가
 
 ## 이번 반영
 

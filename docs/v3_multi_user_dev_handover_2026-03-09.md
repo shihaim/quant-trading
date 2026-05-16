@@ -6,16 +6,16 @@
 
 ## 1) 상태 요약
 
-- Batch: `overall: completed`
-- Stories:
-  - V3.1 schema/migration/backfill foundation: completed
-  - V3.2 user-aware write paths: completed
-  - V3.3 scheduler user-scoped execution: completed
-  - V3.4 remove owner bridge in `/api/me/*`: completed
-  - V3.5 per-user bot runtime control: completed
-  - V3.6 web route and role split: completed
-  - V3.7 security/risk/audit controls: completed
-  - V3.8 multi-user test rewrite and release gates: completed
+- 배치 상태: `overall: completed`
+- Story 목록:
+  - V3.1 schema/migration/backfill foundation: 완료
+  - V3.2 사용자 인식 write path: 완료
+  - V3.3 사용자 scope scheduler 실행: 완료
+  - V3.4 `/api/me/*` owner bridge 제거: 완료
+  - V3.5 사용자별 bot runtime control: 완료
+  - V3.6 web route와 role 분리: 완료
+  - V3.7 security/risk/audit control: 완료
+  - V3.8 multi-user test rewrite와 release gate: 완료
 
 기준 Notion:
 - Task index: `https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`
@@ -27,7 +27,7 @@
 - order/position/pnl/runtime 데이터는 사용자 경계를 넘지 않는다.
 
 2. 레거시 owner bridge 제거
-- `/api/me/*` read/write 경로는 글로벌 owner bridge에 의존하지 않는다.
+- `/api/me/*` 읽기/쓰기 경로는 global owner bridge에 의존하지 않는다.
 
 3. 런타임 제어 사용자화
 - 전역 단일 `bot_config(id=1)` 전제를 두지 않는다.

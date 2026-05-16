@@ -1,4 +1,4 @@
-# Post-V3 Ops Hardening 작업 정리 (347f67c..HEAD)
+# V3 이후 운영 강화 작업 정리 (347f67c..HEAD)
 
 - 작성일: 2026-03-22
 - 대상: 기획, 개발, 운영
@@ -121,3 +121,14 @@
 
 Notion backlog 기준으로 이번 배치의 필수 Story(S1~S7)는 모두 완료 상태입니다.
 추가 개선 항목은 별도 트랙(후속 제안/운영 개선)으로 관리하는 것이 적절합니다.
+
+## 8) 후속 반영 메모 (2026-05-16)
+
+이 문서는 2026-03-22 기준 S1~S7 완료 보고서입니다. 이후 S5 후속으로 DB 기반 admin role 분리와 role 변경 시 `token_version` 기반 세션 무효화가 반영되었습니다.
+
+- 최신 admin role 운영 기준: `docs/s5_admin_role_separation_hardening_2026-03-26.md`
+- 최신 운영 절차: `docs/ops_runbook.md`의 `Admin Role Operation (DB-first, 2026-03-28)`
+- F2 호환성 정리 계획: `docs/f2_v3_compatibility_fallback_cleanup_plan_2026-05-16.md`
+- 신규 후속 backlog: Notion `2026-05-16 Post-Hardening Follow-up Backlog`
+
+현재 남은 보완 축은 완료된 S1~S7 재작업이 아니라 운영 SQL 안전화, V3 호환성 대체 경로 제거 계획, 문서/UI scope 용어 정렬입니다.

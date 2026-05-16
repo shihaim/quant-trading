@@ -1,40 +1,40 @@
-# order_attempts Unique Constraint Runbook (2026-03-22)
+# order_attempts unique 제약 런북 (2026-03-22)
 
-## Goal
+## 목표
 
-Apply uniqueness hardening for:
+아래 column에 unique hardening을 적용한다.
 
-- `order_attempts.upbit_identifier` (non-null)
-- `order_attempts.upbit_uuid` (non-null)
+- `order_attempts.upbit_identifier` (null 제외)
+- `order_attempts.upbit_uuid` (null 제외)
 
-while keeping existing S6 invariants:
+동시에 기존 S6 불변식을 유지한다.
 
-- fill idempotency unchanged
-- identifier-based recovery semantics unchanged
-- no cross-user mixing
+- fill idempotency 유지
+- identifier 기반 recovery semantics 유지
+- 사용자 간 데이터 혼합 금지
 
-## Preconditions
+## 사전 조건
 
-1. Backup is completed.
-2. Consistency check is clean.
-3. Apply during a low-traffic window.
+1. 백업을 완료한다.
+2. consistency check 결과가 clean이어야 한다.
+3. 트래픽이 낮은 시간대에 적용한다.
 
-## Verified on current prod snapshot
+## 현재 운영 snapshot 검증 결과
 
 - Consistency report:
   - `backups/prod-order-attempts-consistency-20260322-180618.json`
-- Summary:
+- 요약:
   - duplicate identifier: `0`
   - duplicate uuid: `0`
   - order/latest-attempt drift: `0`
 
-## Apply
+## 적용
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/order_attempts_unique_constraints_2026-03-22.sql
 ```
 
-## Post-check
+## 적용 후 확인
 
 ```sql
 SELECT indexname, indexdef
@@ -51,13 +51,13 @@ ORDER BY indexname;
 python scripts/check_order_attempts_consistency.py --max-items 500 --fail-on-issues
 ```
 
-## Rollback
+## 롤백
 
-If rollback is needed:
+롤백이 필요하면 아래 index를 제거한다.
 
 ```sql
 DROP INDEX IF EXISTS uq_order_attempts_upbit_identifier_not_null;
 DROP INDEX IF EXISTS uq_order_attempts_upbit_uuid_not_null;
 ```
 
-If data rollback is needed, restore from pre-change backup snapshot.
+데이터 롤백이 필요하면 변경 전 백업 snapshot에서 복원한다.

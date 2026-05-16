@@ -1,4 +1,4 @@
-# PostgreSQL V3 Schema Sync Runbook (2026-03-08)
+# PostgreSQL V3 schema sync 런북 (2026-03-08)
 
 ## 목적
 

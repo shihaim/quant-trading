@@ -1,178 +1,164 @@
-﻿# Quant Trading MVP Context Anchor
+# Quant Trading MVP 문맥 기준
 
-Last verified: 2026-03-22
-Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/strategy.py`, `trader/trading/risk.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/trading/order_policy.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/auth/guard.py`, `trader/auth/tokens.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `trader/app/main.py`, `scripts/run_release_gate.py`, `scripts/audit_upbit_credential_coverage.py`
+최종 확인: 2026-03-22
 
-## Quick routing
+확인 기준 파일: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/strategy.py`, `trader/trading/risk.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/trading/order_policy.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/auth/guard.py`, `trader/auth/tokens.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `trader/app/main.py`, `scripts/run_release_gate.py`, `scripts/audit_upbit_credential_coverage.py`
 
-Read this file first when the task changes any of these:
-- trading logic, scheduler flow, order execution, reconcile, fills, PnL, runtime config, risk, Ops API behavior
-- DB invariants for `orders`, `order_attempts`, `fills`, `positions`, `daily_equity`, `paper_wallet`, `user_bot_config`, `user_bot_runtime`, `user_risk_guard`, `bot_config`
+## 빠른 적용 기준
 
-This file is usually not needed for:
-- simple UI text/style work in `apps/web`
-- isolated README/docs cleanup with no behavior change
-- non-trading utility refactors that do not touch order/accounting/runtime semantics
+아래를 수정하는 작업은 이 문서를 먼저 읽는다.
 
-Use this document as the stable invariant source for Codex/LLM-assisted work on this repo.
+- 거래 로직, scheduler flow, 주문 실행, reconcile, fill, PnL, runtime config, risk, Ops API 동작
+- `orders`, `order_attempts`, `fills`, `positions`, `daily_equity`, `paper_wallet`, `user_bot_config`, `user_bot_runtime`, `user_risk_guard`, `bot_config`의 DB 불변식
 
-## 1. Project shape
+아래 작업에는 보통 이 문서가 필요하지 않다.
 
-- Project type: Upbit spot trading MVP.
-- Architecture: multi-user trading scheduler + per-user execution worker + separate Ops API + separate Next.js dashboard frontend.
-- Main Python package: `trader/`
+- `apps/web`의 단순 UI 문구/스타일 변경
+- 동작 변경이 없는 README/docs 정리
+- 주문/회계/런타임 의미를 건드리지 않는 utility refactor
+
+이 문서는 Codex/LLM 보조 작업에서 안정적인 불변식 기준으로 사용한다.
+
+## 1. 프로젝트 형태
+
+- 프로젝트 유형: Upbit spot trading MVP.
+- 구조: 멀티유저 trading scheduler, 사용자별 execution worker, 별도 Ops API, 별도 Next.js dashboard frontend.
+- 주요 Python package: `trader/`
 - Frontend: `apps/web`
-- Primary runtime entrypoints:
+- 주요 runtime entrypoint:
   - `python -m trader.app.main`
   - `python -m trader.app.ops_api`
   - `python -m trader.app.backtest`
 
-## 2. Trading modes
+## 2. Trading mode
 
-`TRADE_MODE` supports:
+`TRADE_MODE`는 아래 값을 지원한다.
 
-- `PAPER`: default; no live exchange submit. Orders are inserted as immediately `FILLED` and a synthetic fill is created.
+- `PAPER`: 기본값. live exchange submit 없음. order는 즉시 `FILLED`로 insert되고 synthetic fill이 생성된다.
 - `REAL`: live Upbit order submit.
-- `TEST`: calls Upbit `/v1/orders/test`; stores ledger result as `TEST_OK`; no live order.
-- `SHADOW`: validates and records intent only; no exchange submit; order state becomes `SHADOW`.
+- `TEST`: Upbit `/v1/orders/test` 호출. ledger 결과는 `TEST_OK`로 저장하며 live order는 만들지 않는다.
+- `SHADOW`: validation과 intent 기록만 수행. exchange submit 없음. order state는 `SHADOW`.
 
-Important:
+중요:
 
-- `REAL`, `TEST`, `SHADOW` require Upbit credentials.
-- Local CLI/dev falls back to `sqlite:///./trading.db` if `DATABASE_URL` is unset.
-- Docker Compose defaults to PostgreSQL.
-- Do not confuse `PAPER` immediate local fill semantics with real-mode asynchronous lifecycle.
+- `REAL`, `TEST`, `SHADOW`는 Upbit credential이 필요하다.
+- local CLI/dev는 `DATABASE_URL`이 없으면 `sqlite:///./trading.db`로 fallback한다.
+- Docker Compose 기본값은 PostgreSQL이다.
+- `PAPER` immediate local fill semantics를 real-mode asynchronous lifecycle과 혼동하지 않는다.
 
 ## 3. Core scheduler loop
 
-The scheduler loop lives in `trader/trading/scheduler.py`.
+Scheduler loop는 `trader/trading/scheduler.py`에 있다.
 
-Current runtime shape:
+현재 runtime 형태:
 
-- `MultiUserTradingScheduler` coordinates active users and runs per-user ticks with lock-based isolation.
-- `TradingScheduler` executes one user tick.
+- `MultiUserTradingScheduler`가 활성 사용자를 조정하고, 사용자별 tick을 lock 기반으로 격리한다.
+- `TradingScheduler`는 한 사용자 tick을 실행한다.
 
-Per due tick for one user, the scheduler does this:
+한 사용자에 대한 due tick 순서:
 
-1. Load runtime config from DB using `load_for_user(user_id)`.
-2. For each configured market:
-   - backfill candles,
-   - upsert latest complete candle,
-   - load recent candles,
-   - use the last complete candle close as mark/reference price.
-3. Build portfolio snapshot:
-   - `PAPER`: from that user's local wallet + local positions.
-   - non-paper: via reconcile against that user's Upbit account.
-4. Update daily PnL snapshot for that user.
-5. Evaluate strategy signal.
-6. Apply risk engine.
-7. Skip rebalance if below threshold.
-8. Skip order if notional is below `5000 KRW + min_order_krw_buffer`.
-9. Place, sync, and apply fills within that user scope.
-10. Check slippage budget breach and optionally auto-halt that user's runtime.
+1. DB에서 `load_for_user(user_id)`로 runtime config를 읽는다.
+2. 각 configured market에 대해 candle backfill, 최신 complete candle upsert, recent candle load를 수행한다.
+3. 마지막 complete candle close를 mark/reference price로 사용한다.
+4. portfolio snapshot을 만든다.
+   - `PAPER`: 해당 사용자의 local wallet + local positions 기준.
+   - non-paper: 해당 사용자의 Upbit account reconcile 기준.
+5. 해당 사용자의 daily PnL snapshot을 갱신한다.
+6. strategy signal을 평가한다.
+7. risk engine을 적용한다.
+8. rebalance threshold 미만이면 skip한다.
+9. notional이 `5000 KRW + min_order_krw_buffer` 미만이면 skip한다.
+10. 사용자 scope 안에서 order place, sync, fill apply를 수행한다.
+11. slippage budget breach를 확인하고 필요하면 해당 사용자 runtime만 auto-halt한다.
 
 Scheduled-order idempotency key:
 
 - `"{timeframe}-{market}-{last_complete_candle_time_utc}"`
 - `client_order_id = "u{user_id}-" + sanitized(idempotency_key) + "-" + side`
-- Same candle, market, and side must not create duplicate logical orders within the same user scope.
+- 같은 candle, market, side는 같은 사용자 scope 안에서 중복 logical order를 만들면 안 된다.
 
-## 4. Strategy and risk rules
+## 4. Strategy와 risk 규칙
 
-### Strategy
-
-Current strategy is `EmaCrossStrategy`.
+현재 strategy는 `EmaCrossStrategy`다.
 
 - Fast EMA = 20
 - Slow EMA = 60
-- Requires at least `slow + 5` candles.
-- `fast_ema > slow_ema` => `BUY`
-- else => `SELL`
-- BUY target exposure defaults to `0.10`, but scheduler overwrites it from runtime config.
+- 최소 `slow + 5` candle 필요
+- `fast_ema > slow_ema`이면 `BUY`
+- 그 외에는 `SELL`
+- BUY target exposure 기본값은 `0.10`이지만 scheduler가 runtime config 값으로 덮어쓴다.
 
-### Risk engine
+Risk engine output은 최종 허용 target exposure다.
 
-Risk engine output is the final allowed target exposure.
+Hard guard:
 
-Hard guards:
-
-- If bot is disabled: halt, target exposure = `0`.
-- If daily PnL pct <= `-abs(max_daily_loss_pct)`: halt, target exposure = `0`.
-- If weekly PnL pct <= `-abs(max_weekly_loss_pct)` (when configured): halt, target exposure = `0`.
-- If monthly PnL pct <= `-abs(max_monthly_loss_pct)` (when configured): halt, target exposure = `0`.
-- If `new_orders_today >= max_new_orders_per_day` (when configured): halt, target exposure = `0`.
-- If `orders_this_week >= max_orders_per_week` (when configured): halt, target exposure = `0`.
+- bot disabled: halt, target exposure = `0`
+- daily PnL pct <= `-abs(max_daily_loss_pct)`: halt, target exposure = `0`
+- weekly PnL pct <= `-abs(max_weekly_loss_pct)` (설정 시): halt, target exposure = `0`
+- monthly PnL pct <= `-abs(max_monthly_loss_pct)` (설정 시): halt, target exposure = `0`
+- `new_orders_today >= max_new_orders_per_day` (설정 시): halt, target exposure = `0`
+- `orders_this_week >= max_orders_per_week` (설정 시): halt, target exposure = `0`
 
 Exposure logic:
 
-- BUY or hold exposure is capped by:
+- BUY 또는 hold exposure는 아래 값으로 cap된다.
   - `signal.target_exposure_pct`
   - `max_per_market_exposure_pct`
   - `max_total_exposure_pct`
-- SELL forces target exposure to `0`.
+- SELL은 target exposure를 `0`으로 강제한다.
 
-Gates:
+Gate:
 
-- Skip rebalance if `abs(target_exposure_pct - current_exposure_pct) < min_rebalance_threshold_pct`.
-- Skip BUY if signal edge pct is below `min_edge_pct` (filter only, no runtime halt).
-- Skip if order notional < `5000 KRW + min_order_krw_buffer`.
+- `abs(target_exposure_pct - current_exposure_pct) < min_rebalance_threshold_pct`이면 rebalance skip.
+- BUY signal edge pct가 `min_edge_pct`보다 낮으면 skip. 이 filter는 runtime halt가 아니다.
+- order notional이 `5000 KRW + min_order_krw_buffer`보다 작으면 skip.
 
-## 5. Runtime config invariants
+## 5. Runtime config 불변식
 
-Runtime config is loaded from DB, not only env.
+Bot config source:
 
-### Bot config source
+- 주 소스: active `user_id`의 `user_bot_config` row.
+- fallback 소스: user row가 없을 때 global `bot_config.id = 1`.
+- active timeframe 소스: `timeframe_config`에서 `is_enabled=true`인 첫 row, `id ASC` 기준.
+- 선택된 timeframe이 invalid이면 `15m`으로 fallback.
+- runtime enable/status 소스: 사용자별 `user_bot_runtime`.
+- risk guard 소스: 사용자별 `user_risk_guard`.
 
-- Primary source: `user_bot_config` row for the active `user_id`
-- Fallback source: global `bot_config.id = 1` when user row is missing
-- Active timeframe source: first enabled row from `timeframe_config` ordered by `id ASC`
-- If selected timeframe is invalid, fallback to `15m`
-- Runtime enable/status source: `user_bot_runtime` per user
-- Risk guard source: `user_risk_guard` per user
+중요 runtime field:
 
-### Important runtime fields
-
-- `is_enabled`
-- `timeframe`
-- `markets_json`
 - `target_exposure_pct`
-- `daily_loss_basis`: `TOTAL` or `REALIZED_ONLY`
-- `max_daily_loss_pct`
-- `max_weekly_loss_pct`
-- `max_monthly_loss_pct`
 - `max_total_exposure_pct`
 - `max_per_market_exposure_pct`
+- `daily_loss_basis`
 - `min_rebalance_threshold_pct`
 - `min_order_krw_buffer`
+- `fill_timeout_sec_entry`
+- `fill_timeout_sec_exit`
+- `fill_timeout_sec_rebalance`
+- `max_reprice_attempts_entry`
+- `max_reprice_attempts_exit`
+- `max_reprice_attempts_rebalance`
+- `reprice_step_bps`
+- `slippage_budget_*`
+- `max_weekly_loss_pct`
+- `max_monthly_loss_pct`
 - `cooldown_hours_on_halt`
 - `max_new_orders_per_day`
 - `max_orders_per_week`
 - `min_edge_pct`
-- `fill_timeout_sec_entry`, `fill_timeout_sec_exit`, `fill_timeout_sec_rebalance`
-- `max_reprice_attempts_entry`, `max_reprice_attempts_exit`, `max_reprice_attempts_rebalance`
-- `reprice_step_bps`
-- `slippage_budget_entry_pct`
-- `slippage_budget_exit_pct`
-- `slippage_budget_breach_halt_count`
-- `status_notify_interval_seconds`
 
-Sanitization rules:
+Sanitization:
 
-- timeouts are clamped to `1..120`
-- reprice attempts are clamped to `1..10`
-- `reprice_step_bps` is clamped to `1..500`
-- notify interval is clamped to `300..86400`
-- `daily_loss_basis` is only `TOTAL` or `REALIZED_ONLY`; invalid values become `TOTAL`
-- `max_weekly_loss_pct`, `max_monthly_loss_pct`, `min_edge_pct` are clamped into `0..1`
-- `cooldown_hours_on_halt` is clamped to `0..168`
-- `max_new_orders_per_day` is clamped to `0..10000`
-- `max_orders_per_week` is clamped to `0..70000`
+- exposure 계열 값은 안전 범위로 clamp한다.
+- timeout은 `1..120`.
+- reprice attempt는 `1..10`.
+- `reprice_step_bps`는 `1..500`.
+- `daily_loss_basis`는 `TOTAL` 또는 `REALIZED_ONLY`; invalid 값은 `TOTAL`.
+- invalid timeframe은 `15m`.
 
-## 6. Order states and mappings
+## 6. Order state와 mapping
 
-### Local open-state set
-
-The system treats these as not yet closed:
+Local open state:
 
 - `NEW`
 - `SENT`
@@ -180,242 +166,98 @@ The system treats these as not yet closed:
 - `PARTIAL`
 - `WAIT`
 
-### Upbit to local mapping
+Terminal/특수 state:
+
+- `FILLED`
+- `CANCELED`
+- `REJECTED`
+- `ERROR_NEEDS_REVIEW`
+- `TEST_OK`
+- `SHADOW`
+
+Upbit mapping:
 
 - `wait` -> `OPEN`
 - `watch` -> `OPEN`
 - `done` -> `FILLED`
 - `cancel` -> `CANCELED`
-- missing state during sync defaults to `SENT`
-- missing state during reconcile open-orders defaults to `OPEN`
 
-### Other important states
-
-- `REJECTED`: validation or submit-level rejection
-- `ERROR_NEEDS_REVIEW`: recovery failed; manual inspection required
-- `TEST_OK`: test-order path succeeded
-- `SHADOW`: validation-only shadow mode record
-
-## 7. Order execution invariants
-
-Execution engine is in `trader/trading/execution.py`.
-
-### Logical order behavior
-
-- `delta = target_qty - current_qty`
-- `abs(delta) < 1e-8` => no order
-- `delta > 0` => `bid`
-- `delta < 0` => `ask`
-- One logical order can have multiple `order_attempts`
-
-### Validation and allowlist behavior
-
-If market allowlist is enforced and the market is not allowed:
-
-- create local order row
-- set state to `REJECTED`
-- set `error_class = VALIDATION_ERROR`
-- do not submit to exchange
-
-Before submit:
-
-- price must be `> 0`
-- volume must be `> 0`
-- order chance is fetched from Upbit
-- price is adjusted to tick size
-- volume is rounded down to `0.00000001`
-- order notional must satisfy `min_total + min_order_krw_buffer`
-
-### Conflict, idempotency, and recovery
-
-Before creating a new logical order for a market:
-
-- if there is an opposite-side open order in that market, cancel it first
-
-Critical recovery invariant:
-
-- On submit failure, do not blindly resubmit the same attempt.
-- The engine performs one submit, then recovery by Upbit `identifier` lookup only.
-
-Mechanics:
-
-- Each attempt reserves a unique one-time `upbit_identifier`.
-- `upbit_identifier` must never be reused across attempts.
-- If create succeeds, sync by `upbit_uuid`.
-- If create fails, classify error, then try `get_order_by_identifier()` up to `max_submit_retries`.
-- If recovery still fails, final state becomes `ERROR_NEEDS_REVIEW`.
-
-### Reprice policy
-
-Policy is deterministic by intent:
-
-- `ENTRY`: `LIMIT`, default timeout `10s`, default reprice attempts `2`
-- `EXIT`: `LIMIT`, but `AGGRESSIVE_LIMIT` if stop or hard-halt; default timeout `4s`, default reprice attempts `1`
-- `REBALANCE`: conservative `LIMIT`, default reprice attempts `1`
-- `reprice_step_bps` default is `10`
-- market fallback on exit is currently disabled in scheduler config
-
-### Partial fills
-
-After sync:
-
-- if local state is `OPEN` and `0 < executed_volume < requested_volume`, convert to `PARTIAL`
-
-## 8. Reconcile invariants
-
-Non-paper trading uses `ReconcileService`.
-
-Reconcile flow:
-
-1. Pull accounts from Upbit and overwrite local positions.
-2. Pull open orders from Upbit and reconcile into local `orders` and `order_attempts`.
-3. Sync local open orders again via execution engine.
-4. Apply unapplied fills exactly once.
-5. Recompute unrealized PnL.
-
-Important:
-
-- `cash_krw = KRW.balance + KRW.locked`
-- position qty uses `balance + locked`
-- mark price defaults to current candle close; if missing, falls back to avg buy price
-- if an open exchange order exists but no local logical order exists, reconcile creates one
-- reconcile-created attempts use `submit_reason = RECOVER`
-
-## 9. Fill, position, and PnL invariants
-
-### Fill ledger
-
-- `fills.trade_id` is globally unique
-- `fills.is_applied` prevents double-applying fills
-- new fills are inserted once, then applied once
-
-### Position accounting
-
-Buy fill:
-
-- increases qty
-- updates avg price using weighted cost + fee
-
-Sell fill:
-
-- realizes PnL as `(sell_qty * (price - avg_price)) - fee`
-- reduces qty
-- if qty becomes zero, avg price resets to `0`
-
-### Daily equity
-
-`daily_equity` stores:
-
-- `start_equity`
-- `start_realized_pnl`
-- `last_equity`
-- `realized_pnl`
-- `unrealized_pnl`
-- `daily_pnl_abs`
-- `daily_pnl_pct`
-
-Daily loss basis:
-
-- `TOTAL`: use full daily equity change
-- `REALIZED_ONLY`: use `current_realized_pnl - start_realized_pnl`
-
-## 10. Trade metrics and slippage invariants
-
-For each order, at most one `trade_metrics` row exists.
-
-Metrics derive from applied fills:
-
-- VWAP from fill notional / fill volume
-- fee sum from fills
-- `time_to_fill_ms = last fill time - order created time`
-- `partial_fill_count = number of fills`
-
-Slippage sign convention:
-
-- buy worse than intended price => positive slippage
-- sell worse than intended price => positive slippage
-
-Budget checks:
-
-- `EXIT` uses `slippage_budget_exit_pct`
-- non-`EXIT` uses `slippage_budget_entry_pct`
-- if breach count since UTC day start >= `slippage_budget_breach_halt_count`, scheduler auto-disables the bot
-
-## 11. Core data model
-
-Main tables:
-
-- `users`
-- `user_exchange_credentials`
-- `user_api_budget`
-- `audit_log`
-- `user_bot_config` (unique `user_id`)
-- `user_bot_runtime` (unique `user_id`)
-- `user_risk_guard` (unique `user_id`)
-- `bot_config`
-- `timeframe_config`
-- `candles` unique by `(market, timeframe, candle_time_utc)`
-- `orders` unique `(user_id, client_order_id)`
-- `order_attempts` unique `(order_id, attempt_no)`
-- `fills` unique `trade_id`
-- `trade_metrics` unique `order_id`
-- `positions` PK `(user_id, market)`
-- `daily_equity` PK `(user_id, date_utc)`
-- `paper_wallet` PK `user_id`
-
-Order and accounting tables are the most important anchor for modifications.
-
-## 12. Ops/API notes
-
-Ops API surfaces operational reads and writes over local DB state.
-
-Notable endpoints:
-
-- auth: signup/login
-- user-scoped reads/writes under `/api/me/*` (credentials, orders, pnl, metrics, bot status/start/stop)
-- admin per-user scoped reads under `/api/admin/users/{user_id}/*`
-- admin ops visibility summary: `GET /api/admin/users/runtime-summary`
-- admin audit read/search: `GET /api/admin/audit/logs`
-- admin session lifecycle control: `POST /api/admin/users/{user_id}/sessions/invalidate`
-- admin role change: `POST /api/admin/users/{user_id}/role`
-- retired admin compatibility aliases return `410 legacy_endpoint_retired` with replacement metadata
-- legacy compatibility endpoints `POST /api/bot/enable|disable` are retired and return `410 legacy_endpoint_retired` with replacement path metadata
-
-Release gate artifact command:
-
-- `python scripts/run_release_gate.py --output-dir .`
-
-Current compatibility behavior:
-
-- `/api/me/*` is user-scoped and must not depend on owner bridging.
-- Do not casually remove compatibility fallback paths unless the task explicitly includes migration/removal.
-
-## 13. Do-not-break rules
-
-Preserve these invariants unless the task explicitly changes product behavior:
-
-1. Do not break order idempotency by candle, market, and side within user scope.
-2. Do not resubmit blindly after submit ambiguity; recover by identifier first.
-3. Do not apply the same fill twice.
-4. Do not reuse `upbit_identifier` across attempts.
-5. Do not remove conflict cancellation for opposite-side open orders.
-6. Do not bypass min-notional and tick-size validation.
-7. Do not change daily loss basis semantics accidentally.
-8. Do not invert the slippage sign convention.
-9. Do not confuse `PAPER` immediate fills with real-mode asynchronous lifecycle.
-10. Do not assume runtime config comes only from env; DB config is authoritative at runtime.
-11. Do not mix data between users in scheduler, execution, reconcile, or Ops read paths.
-12. Do not route authenticated `/api/me/*` data reads through owner fallback scope.
-
-## 14. Best prompt pattern for Codex in this repo
-
-Use prompts in this order:
-
-1. Read `docs/context_anchor.md`
-2. Read the specific trading files involved
-3. State which invariant must remain true
-4. Then patch
-
-Example:
-
-> Read `docs/context_anchor.md`, then inspect `trader/trading/execution.py` and `trader/trading/reconcile.py`. Fix the bug without breaking identifier-based recovery, fill idempotency, or opposite-side open-order cancellation.
+## 7. 주문 실행 불변식
+
+Order/accounting table은 수정 시 가장 중요한 기준이다.
+
+- order intent는 `ENTRY`, `EXIT`, `REBALANCE`를 사용한다.
+- price/volume/tick-size/min-notional validation을 우회하지 않는다.
+- market allowlist가 켜져 있고 market이 허용되지 않으면 local reject 후 exchange submit을 하지 않는다.
+- submit failure 이후 같은 attempt를 blind resubmit하지 않는다.
+- identifier 기반 recovery를 우선한다.
+- one logical order can have multiple attempts.
+- attempt마다 `upbit_identifier`를 재사용하지 않는다.
+- opposite-side open-order conflict 처리는 함부로 제거하지 않는다.
+
+## 8. Reconcile 불변식
+
+- Upbit account를 읽어 local position을 갱신한다.
+- Upbit open order를 읽어 local `orders`와 `order_attempts`를 reconcile한다.
+- exchange state가 있으나 local record가 없으면 recovery가 local record를 만들 수 있다.
+- fill ingestion은 idempotent해야 한다.
+- local state가 `OPEN`이고 `0 < executed_volume < requested_volume`이면 `PARTIAL`로 전환한다.
+- 사용자 scope 밖의 order/position/wallet을 건드리면 안 된다.
+
+## 9. Fill, position, PnL 불변식
+
+- 같은 exchange fill/trade id는 한 번만 적용한다.
+- applied fill이 position quantity, average price, realized PnL, wallet/accounting update를 만든다.
+- daily equity는 사용자별, UTC date 기준 snapshot이다.
+- unrealized PnL은 mark/reference price를 사용한다.
+- mark price가 없으면 average buy price fallback을 사용할 수 있다.
+- 사용자 간 equity/PnL aggregation은 의도 없이 하면 안 된다.
+
+## 10. Ops API 불변식
+
+Ops API는 local DB state 위에 운영 읽기/쓰기 경로를 제공한다.
+
+현재 중요한 계약:
+
+- `/api/me/*` 아래 사용자 scope 읽기/쓰기: credentials, orders, pnl, metrics, bot status/start/stop.
+- `/api/admin/users/{user_id}/*` 아래 admin per-user scope 읽기.
+- admin 운영 요약: `GET /api/admin/users/runtime-summary`
+- admin audit 조회: `GET /api/admin/audit/logs`
+- admin session lifecycle: `POST /api/admin/users/{user_id}/sessions/invalidate`
+- admin role 변경: `POST /api/admin/users/{user_id}/role`
+- retired admin compatibility alias는 `410 legacy_endpoint_retired`와 replacement metadata를 반환한다.
+- retired bot compatibility endpoint `POST /api/bot/enable|disable`도 `410 legacy_endpoint_retired`를 반환한다.
+
+유지해야 할 경계:
+
+- `/api/me/*`는 사용자 scope이며 owner bridge에 의존하면 안 된다.
+- 명시적인 migration/removal 작업이 아니면 compatibility fallback path를 함부로 제거하지 않는다.
+- non-admin은 `/ops`와 `/api/admin/*`에 접근할 수 없다.
+
+## 11. 수정 시 절대 깨면 안 되는 항목
+
+1. 사용자 scope 안에서 candle, market, side 기준 order idempotency를 깨지 않는다.
+2. ambiguous submit 이후 identifier 기반 recovery를 깨지 않는다.
+3. 같은 fill을 두 번 적용하지 않는다.
+4. opposite-side open-order cancellation/recovery를 제거하지 않는다.
+5. `REAL`/`TEST`/`SHADOW` credential requirement를 우회하지 않는다.
+6. min-notional과 tick-size validation을 우회하지 않는다.
+7. daily loss basis 의미를 바꾸지 않는다.
+8. slippage sign convention을 뒤집지 않는다.
+9. `PAPER` immediate fill과 real-mode asynchronous lifecycle을 혼동하지 않는다.
+10. runtime config가 env에서만 온다고 가정하지 않는다. DB config가 runtime의 authoritative source다.
+11. scheduler, execution, reconcile, Ops read path에서 사용자 간 데이터를 섞지 않는다.
+12. 인증된 `/api/me/*` data read를 owner fallback scope로 보내지 않는다.
+
+## 12. 권장 작업 순서
+
+1. `docs/context_anchor.md`를 읽는다.
+2. 관련 trading 파일을 좁혀서 읽는다.
+3. 유지할 invariant를 먼저 말한다.
+4. 테스트를 먼저 추가하거나 갱신한다.
+5. 최소 구현으로 통과시킨다.
+6. 필요한 docs/runbook/Notion mapping을 갱신한다.
+
+예시:
+
+> `docs/context_anchor.md`를 읽고, `trader/trading/execution.py`와 `trader/trading/reconcile.py`를 확인한다. identifier 기반 recovery, fill idempotency, opposite-side open-order cancellation을 깨지 않고 버그를 수정한다.

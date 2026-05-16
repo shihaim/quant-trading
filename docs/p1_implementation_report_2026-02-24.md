@@ -55,8 +55,8 @@ P1의 목적은 실계정 환경에서 바로 수익을 내는 것이 아니라,
 
 새 엔트리포인트:
 
-- `python -m trader.app.p1_rehearsal --scenario smoke`
-- `python -m trader.app.p1_rehearsal --scenario order-cancel`
+- `python -m trader.app.p1_rehearsal --scenario smoke --user-id <user_id>`
+- `python -m trader.app.p1_rehearsal --scenario order-cancel --user-id <user_id>`
 
 시나리오:
 
