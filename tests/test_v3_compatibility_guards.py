@@ -16,11 +16,6 @@ def test_me_read_service_never_uses_owner_resolution():
 
 
 def test_owner_resolution_usage_is_limited_to_known_compatibility_paths():
-    allowed_paths = {
-        "trader/config/config_repo.py",
-        "trader/app/p1_rehearsal.py",
-        "tests/test_config_repo.py",
-    }
     matches = {
         str(path.relative_to(REPO_ROOT)).replace("\\", "/")
         for path in REPO_ROOT.rglob("*.py")
@@ -31,7 +26,7 @@ def test_owner_resolution_usage_is_limited_to_known_compatibility_paths():
         and "resolve_owner_user_id" in path.read_text(encoding="utf-8")
     }
 
-    assert matches == allowed_paths
+    assert matches == set()
 
 
 def test_f2_cleanup_plan_documents_remaining_compatibility_zones():
@@ -45,13 +40,13 @@ def test_f2_cleanup_plan_documents_remaining_compatibility_zones():
     assert "/api/me/*" in doc
 
 
-def test_p1_rehearsal_owner_resolution_is_fallback_only():
+def test_p1_rehearsal_requires_explicit_user_id_without_owner_fallback():
     source = _repo_text("trader/app/p1_rehearsal.py")
 
     assert "--user-id" in source
     assert "_resolve_rehearsal_user_id" in source
-    assert 'settings.trade_mode.upper() != "PAPER"' in source
     assert 'raise ValueError("user_id_required")' in source
+    assert "resolve_owner_user_id" not in source
 
 
 def test_web_no_longer_displays_owner_user_compatibility_scope():

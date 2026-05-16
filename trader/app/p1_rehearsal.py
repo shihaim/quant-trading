@@ -32,18 +32,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _resolve_rehearsal_user_id(config_repo: ConfigRepo, *, explicit_user_id: int | None) -> int:
+def _resolve_rehearsal_user_id(*, explicit_user_id: int | None) -> int:
     if explicit_user_id is not None:
         return max(1, int(explicit_user_id))
-    if settings.trade_mode.upper() != "PAPER":
-        raise ValueError("user_id_required")
-    return int(config_repo.resolve_owner_user_id())
+    raise ValueError("user_id_required")
 
 
 def _build_runtime(*, explicit_user_id: int | None = None):
     session = SessionLocal()
     config_repo = ConfigRepo(session)
-    user_id = _resolve_rehearsal_user_id(config_repo, explicit_user_id=explicit_user_id)
+    user_id = _resolve_rehearsal_user_id(explicit_user_id=explicit_user_id)
     upbit = UpbitClient(
         base_url=settings.upbit_base_url,
         access_key=settings.upbit_access_key,

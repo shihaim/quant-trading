@@ -6,16 +6,14 @@ from dataclasses import dataclass
 from decimal import Decimal
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trader.data.models import (
     BotConfig,
     TimeframeConfig,
-    User,
     UserBotConfig,
     UserBotRuntime,
-    UserExchangeCredential,
     UserRiskGuard,
 )
 from trader.utils.timeframes import SUPPORTED_TIMEFRAMES
@@ -168,17 +166,6 @@ class ConfigRepo:
             emergency_kill_switch=bool(row.emergency_kill_switch),
             reason=row.reason,
         )
-
-    def resolve_owner_user_id(self, default: int = 1) -> int:
-        owner_user_id = self.session.scalar(
-            select(func.min(UserExchangeCredential.user_id)).where(UserExchangeCredential.exchange == "UPBIT")
-        )
-        if owner_user_id is not None:
-            return int(owner_user_id)
-        fallback = self.session.scalar(select(func.min(User.id)))
-        if fallback is not None:
-            return int(fallback)
-        return max(1, int(default))
 
     def _get_or_create_runtime_row(self, *, user_id: int) -> UserBotRuntime:
         row = self.session.execute(

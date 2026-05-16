@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from trader.config.config_repo import ConfigRepo
 from trader.data.db import Base
-from trader.data.models import BotConfig, TimeframeConfig, User, UserBotConfig, UserExchangeCredential
+from trader.data.models import BotConfig, TimeframeConfig, User, UserBotConfig
 
 
 def _session():
@@ -185,17 +185,3 @@ def test_get_risk_guard_defaults_to_not_halted():
     assert state.is_halted is False
 
 
-def test_resolve_owner_user_id_prefers_upbit_credential_owner():
-    session = _session()
-    session.add_all(
-        [
-            User(email="a@example.com", password_hash="hash"),
-            User(email="b@example.com", password_hash="hash"),
-        ]
-    )
-    session.flush()
-    session.add(UserExchangeCredential(user_id=2, exchange="UPBIT", access_key_encrypted="a", secret_key_encrypted="b", access_key_masked="****", access_key_fingerprint="fp"))
-    session.commit()
-
-    owner_id = ConfigRepo(session).resolve_owner_user_id()
-    assert owner_id == 2

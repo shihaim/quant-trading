@@ -2,7 +2,7 @@
 
 - 스토리 ID: F2
 - 출처: Notion `2026-05-16 Post-Hardening Follow-up Backlog`
-- 상태: 진행 중
+- 상태: 완료
 - 범위: 남아 있는 owner 대체 경로를 목록화하고, `/api/me/*` owner bridge 회귀를 막으며, 호환성 대체 경로의 종료 기준을 정의한다.
 
 ## 유지해야 할 불변식
@@ -18,8 +18,7 @@
 ### 런타임 owner 해석
 
 - `trader/config/config_repo.py`
-  - `ConfigRepo.resolve_owner_user_id()`는 UPBIT 자격증명이 있는 가장 작은 사용자 ID, 그다음 가장 작은 사용자 ID, 마지막으로 기본값 `1`을 legacy owner로 해석한다.
-  - 이 helper는 호환성 전용이며, 새 인증 API 읽기/쓰기 경로에서 사용하면 안 된다.
+  - 완료: `ConfigRepo.resolve_owner_user_id()` helper를 제거했다.
   - 완료: `ConfigRepo.load_for_user()`는 더 이상 global `bot_config(id=1)`로 fallback하지 않는다.
   - 완료: 사용자별 `user_bot_config` row가 없으면 기본 사용자 config row를 생성한 뒤 그 row를 runtime config로 사용한다.
 
@@ -28,9 +27,8 @@
   - 운영 scheduler 생성 경로는 명시적인 `user_id`를 전달한다.
 
 - `trader/app/p1_rehearsal.py`
-  - P1 rehearsal helper는 `--user-id`가 있으면 명시 user id를 우선 사용한다.
-  - 완료: `--user-id`가 없을 때의 legacy owner 해석은 `PAPER` 모드에서만 허용한다.
-  - 완료: `REAL`, `TEST`, `SHADOW`에서는 `--user-id`가 없으면 `user_id_required` hard error를 발생시킨다.
+  - 완료: P1 rehearsal helper는 항상 명시적인 `--user-id`를 요구한다.
+  - 완료: `--user-id`가 없으면 모든 trade mode에서 `user_id_required` hard error를 발생시킨다.
 
 ### 관리자 role 대체 경로
 
@@ -47,7 +45,7 @@
 ## 추가된 보호 장치
 
 - `tests/test_v3_compatibility_guards.py`는 `/api/me/*` read service가 계속 명시적인 사용자 scope를 `OpsService`에 전달하는지 확인한다.
-- 같은 테스트는 `resolve_owner_user_id()` 사용을 위에 적은 알려진 호환성 경로로 제한한다.
+- 같은 테스트는 `resolve_owner_user_id()`가 runtime 코드에 재도입되지 않도록 확인한다.
 - 같은 테스트는 `apps/web` 및 `OpsService`에 legacy owner scope 용어가 재도입되지 않도록 확인한다.
 - 같은 테스트는 `load_for_user()`에 global `bot_config(id=1)` fallback이 재도입되지 않도록 확인한다.
 
@@ -59,10 +57,11 @@
 4. 완료: `TradingScheduler(user_id=None)` 대체 경로를 `user_id_required` hard error로 바꾼다.
 5. 완료: DB 기반 admin role 운영 기준을 운영 문서에 남기고 `OPS_API_ADMIN_EMAILS` 대체 권한 판정을 제거했다.
 6. 완료: 배포 문서에서 영구 `OPS_API_ADMIN_EMAILS` 사용을 제거하고, 비상 시 DB/API role grant 절차만 남겼다.
-7. 완료: P1 rehearsal owner fallback을 `PAPER` 전용으로 제한하고 비-PAPER 실행에서는 명시적인 `--user-id`를 요구한다.
+7. 완료: P1 rehearsal owner fallback을 제거하고 모든 실행에서 명시적인 `--user-id`를 요구한다.
 8. 완료: 프론트 타입과 사용자 화면에서 `owner_user_id` 호환성 표시를 제거한다.
 9. 완료: API/서비스 계층에서 legacy owner scope 응답/명명을 제거하고 `scope_user_id` 명명을 유지한다.
 10. 완료: `load_for_user()`의 global `bot_config(id=1)` fallback을 제거하고 사용자별 기본 config row를 생성한다.
+11. 완료: `ConfigRepo.resolve_owner_user_id()` helper를 제거하고 owner 대체 해석 사용처를 0개로 만든다.
 
 ## Acceptance 매핑
 
@@ -72,3 +71,4 @@
 - 프론트는 `scope.user_id`만 표시하고, legacy owner scope 용어를 사용자 화면에 노출하지 않는다.
 - 백엔드 `/api/me/*` 응답과 `OpsService`는 legacy owner scope 필드를 노출하지 않는다.
 - 사용자별 runtime config 로딩은 global `bot_config(id=1)` fallback 없이 `user_bot_config` row를 기준으로 동작한다.
+- runtime 코드에는 `resolve_owner_user_id()` 기반 owner 대체 해석이 남아 있지 않다.

@@ -153,7 +153,7 @@ Already landed on current branch:
 
 Remaining transition/compatibility zones:
 
-- Some local compatibility paths still resolve owner user when `user_id` is omitted.
+- No runtime owner-resolution fallback is currently expected. Keep new runtime paths explicitly user-scoped.
 
 Do not treat the following as durable invariants during V3:
 
