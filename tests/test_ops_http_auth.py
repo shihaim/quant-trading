@@ -11,7 +11,6 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from trader.api.ops_http import create_ops_handler
-from trader.auth.roles import AdminRoleResolver
 from trader.audit.service import (
     ACTION_ADMIN_ACTION,
     ACTION_BOT_START,
@@ -57,18 +56,12 @@ def _request_json(
     return response.status, parsed
 
 
-def _grant_admin_role(Session, email: str) -> None:
+def _grant_admin_by_email(*, Session, email: str) -> None:
     with Session() as session:
         user = session.execute(select(User).where(User.email == email)).scalar_one()
         user.is_admin = True
         session.add(user)
         session.commit()
-
-
-def test_admin_role_resolver_ignores_allowlist_without_db_role():
-    user = type("User", (), {"email": "admin@example.com", "is_admin": False})()
-
-    assert AdminRoleResolver(allowlist_emails=["admin@example.com"]).is_admin(user=user) is False
 
 
 def test_auth_endpoints_support_signup_login_and_me(tmp_path):
@@ -467,7 +460,7 @@ def test_admin_ops_routes_require_admin_role(tmp_path, monkeypatch):
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
-        _grant_admin_role(Session, "admin@example.com")
+        _grant_admin_by_email(Session=Session, email="admin@example.com")
         status, payload = _request_json(
             port=server.server_port,
             method="POST",
@@ -536,6 +529,55 @@ def test_admin_ops_routes_require_admin_role(tmp_path, monkeypatch):
         engine.dispose()
 
 
+def test_allowlist_email_does_not_grant_admin_without_db_role(tmp_path, monkeypatch):
+    db_path = tmp_path / "ops-http-admin-allowlist-ignored.db"
+    engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    handler_cls = create_ops_handler(
+        session_factory=Session,
+        trade_mode="PAPER",
+        allow_origin="*",
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        status, _ = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/signup",
+            payload={"email": "admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 201
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path="/api/auth/login",
+            payload={"email": "admin@example.com", "password": "strong-pass-123"},
+        )
+        assert status == 200
+        assert payload["user"]["is_admin"] is False
+        token = payload["access_token"]
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/admin/users/runtime-summary",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status == 403
+        assert payload["error"] == "forbidden"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+        engine.dispose()
+
+
 def test_admin_user_scoped_routes_enforce_admin_and_target_scope(tmp_path, monkeypatch):
     db_path = tmp_path / "ops-http-admin-user-scope.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
@@ -560,7 +602,7 @@ def test_admin_user_scoped_routes_enforce_admin_and_target_scope(tmp_path, monke
                 payload={"email": email, "password": "strong-pass-123"},
             )
             assert status == 201
-        _grant_admin_role(Session, "admin@example.com")
+        _grant_admin_by_email(Session=Session, email="admin@example.com")
 
         status, payload = _request_json(
             port=server.server_port,
@@ -801,6 +843,7 @@ def test_admin_can_invalidate_user_sessions_with_token_version_bump(tmp_path, mo
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
+        _grant_admin_by_email(Session=Session, email="admin@example.com")
         status, _ = _request_json(
             port=server.server_port,
             method="POST",
@@ -808,7 +851,6 @@ def test_admin_can_invalidate_user_sessions_with_token_version_bump(tmp_path, mo
             payload={"email": "member@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
-        _grant_admin_role(Session, "admin@example.com")
 
         status, payload = _request_json(
             port=server.server_port,
@@ -1036,7 +1078,7 @@ def test_admin_alias_routes_retire_and_key_rotation_endpoint(tmp_path, monkeypat
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
-        _grant_admin_role(Session, "admin@example.com")
+        _grant_admin_by_email(Session=Session, email="admin@example.com")
         status, payload = _request_json(
             port=server.server_port,
             method="POST",
@@ -1142,7 +1184,7 @@ def test_admin_user_runtime_summary_endpoint_enforces_boundary_and_reflects_stat
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
-        _grant_admin_role(Session, "admin@example.com")
+        _grant_admin_by_email(Session=Session, email="admin@example.com")
         status, payload = _request_json(
             port=server.server_port,
             method="POST",
@@ -1346,7 +1388,7 @@ def test_admin_audit_logs_endpoint_supports_filters_pagination_and_admin_boundar
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
-        _grant_admin_role(Session, "admin@example.com")
+        _grant_admin_by_email(Session=Session, email="admin@example.com")
         status, payload = _request_json(
             port=server.server_port,
             method="POST",

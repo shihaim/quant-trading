@@ -590,3 +590,73 @@ ORDER BY id;
 - Release gate 선택 확인:
   - `python scripts/run_release_gate.py --output-dir . --include-localtest-smoke`
   - 필수 모드: `--localtest-smoke-required`를 추가한다.
+
+### 12.7 Admin read scope contract
+
+Aggregate admin reads (no `target_user_id` in path):
+- `GET /api/admin/users/runtime-summary`
+- `GET /api/admin/audit/logs`
+
+Target-scoped admin reads (must include `target_user_id` in path):
+- `GET /api/admin/users/{user_id}/credentials/upbit`
+- `GET /api/admin/users/{user_id}/orders`
+- `GET /api/admin/users/{user_id}/pnl/daily`
+- `GET /api/admin/users/{user_id}/metrics/trade`
+- `GET /api/admin/users/{user_id}/bot/status`
+
+Rules:
+- Keep non-admin deny behavior on all `/api/admin/*` paths (`403 admin_required`).
+- Keep legacy unscoped aliases retired with `410 legacy_endpoint_retired` + replacement metadata.
+- Do not add new unscoped admin read endpoints for user-specific data.
+
+### 12.8 Role-change audit verification (who/when)
+
+Security notes:
+- Do not put passwords/tokens directly in shell history.
+- Use short-lived admin tokens only.
+- Do not paste full raw responses into chat/tickets; copy only required fields.
+
+Preferred flow (use pre-issued admin token from secure channel):
+
+```powershell
+$BaseUrl = "<https://ops.example.com>"
+$Token = $env:OPS_ADMIN_TOKEN  # short-lived token provided out-of-band
+if ([string]::IsNullOrWhiteSpace($Token)) { throw "OPS_ADMIN_TOKEN is empty" }
+
+$from = [uri]::EscapeDataString("2026-03-01T00:00:00Z")
+$to   = [uri]::EscapeDataString("2026-03-30T23:59:59Z")
+$uri  = "$BaseUrl/api/admin/audit/logs?action=admin_action&target_type=admin_route&result=all&from=$from&to=$to&limit=200&offset=0"
+
+$logs = Invoke-RestMethod -Method Get -Uri $uri -Headers @{ Authorization = "Bearer $Token" }
+$logs.items |
+  Where-Object { $_.metadata.reason -eq "role_changed" -and $_.metadata.changed -eq $true } |
+  Select-Object created_at_utc, actor_user_id, actor_email, target_user_id,
+                @{n="role_before";e={$_.metadata.role_before}},
+                @{n="role_after";e={$_.metadata.role_after}} |
+  Format-Table -AutoSize
+```
+
+Fallback flow (interactive login without hardcoded password):
+
+```powershell
+$BaseUrl = "<https://ops.example.com>"
+$Email = "<admin@example.com>"
+$SecurePassword = Read-Host "Admin password" -AsSecureString
+$PasswordPtr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
+try {
+  $PlainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($PasswordPtr)
+  $loginBody = @{ email = $Email; password = $PlainPassword } | ConvertTo-Json
+  $login = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/auth/login" -ContentType "application/json" -Body $loginBody
+  $Token = $login.access_token
+} finally {
+  if ($PasswordPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($PasswordPtr) }
+  Remove-Variable PlainPassword, SecurePassword -ErrorAction SilentlyContinue
+}
+```
+
+Verify these fields from entries where `metadata.reason == "role_changed"`:
+- `created_at_utc` (when)
+- `actor_user_id`, `actor_email` (who performed change)
+- `target_user_id` (who was changed)
+- `metadata.role_before`, `metadata.role_after`
+- `metadata.changed` (`true` means effective role transition)

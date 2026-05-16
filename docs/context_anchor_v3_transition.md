@@ -1,129 +1,133 @@
-# Quant Trading MVP 문맥 기준 (V3 전환 안전 기준)
+﻿# Quant Trading MVP Context Anchor (V3 Transition Safe)
 
-최종 확인: 2026-03-22
+Last verified: 2026-03-22
+Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/risk.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/auth/guard.py`, `trader/auth/tokens.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `scripts/run_release_gate.py`, `scripts/audit_upbit_credential_coverage.py`, `apps/web/components/admin-users-runtime-table.tsx`, `apps/web/components/admin-audit-log-viewer.tsx`, `apps/web/components/ops-dashboard.tsx`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
 
-확인 기준 파일: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/risk.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/auth/guard.py`, `trader/auth/tokens.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `scripts/run_release_gate.py`, `scripts/audit_upbit_credential_coverage.py`, `apps/web/components/admin-users-runtime-table.tsx`, `apps/web/components/admin-audit-log-viewer.tsx`, `apps/web/components/ops-dashboard.tsx`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
+## Quick routing
 
-## 빠른 적용 기준
+Read this file first when the task changes any of these:
+- order execution, reconcile, fills, PnL, runtime config validation, risk guards
+- user scoping of orders, positions, wallet, credentials, bot runtime, API read/write paths
+- migration from legacy single-bot assumptions to user-scoped trading core
 
-아래를 수정하는 작업은 이 문서를 먼저 읽는다.
+This file is usually not needed for:
+- simple UI text/style work in `apps/web`
+- isolated docs cleanup with no behavior change
+- implementation-local refactors that do not affect trading/accounting/runtime semantics
 
-- 주문 실행, reconcile, 체결, PnL, 런타임 config 검증, 리스크 guard
-- `orders`, `positions`, `paper_wallet`, `daily_equity`, 자격증명, bot runtime, API 읽기/쓰기 경로의 사용자 scope
-- legacy 단일 bot 전제에서 사용자별 trading core로 이동하는 마이그레이션
+Priority rule:
+- If current branch code conflicts with this file in an in-transition area, prefer current branch code.
+- This file documents stable invariants first. Anything marked "in transition" is not a hard design freeze.
 
-아래 작업에는 보통 이 문서가 필요하지 않다.
+## 1. What remains stable
 
-- `apps/web`의 단순 UI 문구/스타일 변경
-- 동작 변경이 없는 docs 정리
-- 주문/회계/런타임 의미를 건드리지 않는 국소 refactor
+These rules should remain true during V3 unless the product behavior explicitly changes.
 
-우선순위 규칙: 전환 영역에서 이 문서와 현재 branch 코드가 충돌하면 현재 branch 코드를 우선한다. 이 문서는 안정 불변식을 먼저 정리하고, 전환 중 항목은 고정된 설계가 아니다.
+- `PAPER` is local-only simulated execution.
+- `REAL` is exchange-backed execution with asynchronous lifecycle.
+- `TEST` validates against the exchange test path without placing a live order.
+- `SHADOW` records intent without live execution.
+- Invalid runtime values must fail safe.
+- Price, volume, tick-size, and minimum-notional validation must not be bypassed.
+- Submit ambiguity must not cause blind resubmission.
+- Recovery after ambiguous submit should prefer identifier-based lookup.
+- The same fill must never be applied twice.
+- `upbit_identifier` must not be reused across attempts.
+- Opposite-side open-order conflict handling must not be casually removed.
+- Daily loss basis semantics must not be changed accidentally.
+- `PAPER` immediate local fill semantics must not be confused with real-mode lifecycle.
 
-## 1. 계속 유지해야 할 안정 규칙
+## 2. Multi-user invariants for V3
 
-- `PAPER`는 로컬 모의 실행이다.
-- `REAL`은 거래소 기반 비동기 lifecycle을 갖는다.
-- `TEST`는 live order 없이 거래소 test path로 검증한다.
-- `SHADOW`는 live execution 없이 intent만 기록한다.
-- 잘못된 런타임 값은 fail-safe로 처리한다.
-- 가격, 수량, tick size, 최소 주문금액 검증은 우회하면 안 된다.
-- submit ambiguity가 blind resubmit으로 이어지면 안 된다.
-- ambiguous submit 이후 복구는 identifier 기반 조회를 우선한다.
-- 같은 fill은 두 번 적용되면 안 된다.
-- `upbit_identifier`는 attempt 간 재사용하면 안 된다.
-- 반대 방향 open order conflict 처리는 함부로 제거하면 안 된다.
-- daily loss basis 의미를 의도 없이 바꾸면 안 된다.
-- `PAPER` 즉시 local fill semantics와 real-mode 비동기 lifecycle을 혼동하면 안 된다.
+These are now more important than legacy single-bot assumptions.
 
-## 2. V3 멀티유저 불변식
+- Orders, attempts, fills, positions, pnl, wallet state, credentials, and bot runtime must be user-scoped.
+- No cross-user data mixing is allowed.
+- One user failure must not halt or corrupt other users' ticks.
+- Runtime control must be per user, not global.
+- Idempotency and reconciliation must be safe within user scope.
+- Credential loading for normal runtime must be user-scoped.
+- API reads and writes under authenticated `/api/me/*` must not depend on a global owner bridge.
 
-- 주문, attempt, fill, 포지션, PnL, wallet, 자격증명, bot runtime은 사용자 scope를 가져야 한다.
-- 사용자 간 데이터 혼합은 허용되지 않는다.
-- 한 사용자 tick 실패가 다른 사용자의 tick을 중지하거나 오염시키면 안 된다.
-- runtime control은 사용자별이어야 하며 전역 단일 switch가 아니어야 한다.
-- idempotency와 reconcile은 사용자 scope 안에서만 안전하게 동작해야 한다.
-- 일반 runtime의 자격증명 로딩은 사용자별이어야 한다.
-- 인증된 `/api/me/*` 읽기/쓰기 경로는 global owner bridge에 의존하면 안 된다.
+## 3. Trading mode facts
 
-## 3. Trading mode 기준
+Mode semantics apply per active user runtime context.
 
-Mode semantics는 활성 사용자 runtime context마다 적용된다.
+- `PAPER`: no live exchange submit; local simulated fill/accounting path.
+- `REAL`: live Upbit order submit and exchange-backed lifecycle.
+- `TEST`: Upbit test-order path; no live order.
+- `SHADOW`: validation and intent record only.
 
-- `PAPER`: live exchange submit 없음. local simulated fill/accounting path 사용.
-- `REAL`: Upbit live order submit과 exchange-backed lifecycle 사용.
-- `TEST`: Upbit test-order path 사용. live order 없음.
-- `SHADOW`: validation과 intent 기록만 수행.
+Important:
+- `REAL`, `TEST`, and `SHADOW` require credentials for the active user.
+- Do not assume non-paper modes share one exchange account.
 
-중요:
+## 4. Runtime config invariants
 
-- `REAL`, `TEST`, `SHADOW`는 활성 사용자 자격증명이 필요하다.
-- non-paper mode가 하나의 거래소 계정을 공유한다고 가정하면 안 된다.
+Keep these rules, but do not reintroduce legacy global assumptions.
 
-## 4. Runtime config 불변식
+- Runtime config is authoritative at runtime only after validation/sanitization.
+- Invalid values must clamp or safely fall back.
+- Timeouts are clamped to `1..120`.
+- Reprice attempts are clamped to `1..10`.
+- `reprice_step_bps` is clamped to `1..500`.
+- Notify interval is clamped to `300..86400`.
+- `daily_loss_basis` only allows `TOTAL` or `REALIZED_ONLY`; invalid values fall back safely.
 
-- runtime config는 validation/sanitization 이후에만 authoritative하다.
-- 잘못된 값은 clamp하거나 안전한 기본값으로 fallback한다.
-- timeout은 `1..120`으로 clamp한다.
-- reprice attempt는 `1..10`으로 clamp한다.
-- `reprice_step_bps`는 `1..500`으로 clamp한다.
-- notify interval은 `300..86400`으로 clamp한다.
-- `daily_loss_basis`는 `TOTAL` 또는 `REALIZED_ONLY`만 허용하며, 잘못된 값은 안전하게 fallback한다.
+Do not assume these legacy patterns remain valid:
+- one global `bot_config(id=1)` row
+- one shared runtime state for all users
+- one global bot enable/disable switch
 
-새 코드에서 durable invariant로 삼으면 안 되는 legacy pattern:
+Current branch note:
+- `load_for_user()` uses `user_bot_config` first and only falls back to global `bot_config(id=1)` for compatibility.
 
-- 하나의 전역 `bot_config(id=1)` row
-- 모든 사용자가 공유하는 runtime state
-- 하나의 전역 bot enable/disable switch
+## 5. Order execution invariants
 
-현재 branch 메모:
-
-- `load_for_user()`는 먼저 `user_bot_config`를 사용하고, 사용자 row가 없을 때만 호환성을 위해 global `bot_config(id=1)`로 fallback한다.
-
-## 5. 주문 실행 불변식
+These remain core even while write paths become user-aware.
 
 - `delta = target_qty - current_qty`
-- `abs(delta) < 1e-8`이면 주문하지 않는다.
-- `delta > 0`이면 buy side다.
-- `delta < 0`이면 sell side다.
-- 하나의 logical order는 여러 attempt를 가질 수 있다.
-- submit 전 price, volume, tick size, rounding, 최소 주문금액을 검증한다.
-- allowlist 정책이 market을 거부하면 local reject 후 거래소에 submit하지 않는다.
-- submit uncertainty 이후 blind resubmit을 하면 안 된다.
-- attempt마다 one-time `upbit_identifier`를 사용한다.
-- sync 후 일부 체결된 open order는 `PARTIAL`이어야 한다.
+- `abs(delta) < 1e-8` => no order
+- `delta > 0` => buy side
+- `delta < 0` => sell side
+- One logical order can have multiple attempts.
+- Before submit, validate price, volume, tick size, rounding, and minimum-notional rules.
+- If allowlist policy rejects a market, reject locally and do not submit to exchange.
+- Do not blindly resubmit after submit uncertainty.
+- Use one-time `upbit_identifier` values per attempt.
+- After sync, a partially executed still-open order should become `PARTIAL`.
 
-사용자 scope 기준:
+User-scope clarification:
+- Duplicate logical-order prevention must be evaluated within the same user scope.
+- Identifier recovery and order matching must not mix users.
 
-- duplicate logical order 방지는 같은 사용자 scope 안에서 판단한다.
-- identifier recovery와 order matching은 사용자 간에 섞이면 안 된다.
+## 6. Reconcile and accounting invariants
 
-## 6. Reconcile 및 accounting 불변식
+These remain true, but they must operate within the correct user boundary.
 
-- reconcile은 exchange/account data를 local trading state에 반영한다.
-- exchange state는 있으나 local state가 없으면 recovery가 local record를 만들 수 있다.
-- fill ingestion은 idempotent해야 한다.
-- 적용된 fill이 position과 PnL update를 만든다.
-- unrealized PnL은 현재 mark/reference price에 의존할 수 있다.
-- `cash_krw`류 balance 계산은 올바른 account scope를 사용해야 한다.
+- Reconcile updates local trading state from exchange/account data.
+- If exchange state exists but local state is missing, recovery may create local records.
+- Fill ingestion must be idempotent.
+- Applied fills drive position and PnL updates.
+- Unrealized PnL can depend on current mark/reference price.
+- `cash_krw` style balance calculations must use the correct account scope.
 
-사용자 scope 기준:
+User-scope clarification:
+- Reconcile must never overwrite one user's positions/wallet with another user's account data.
+- PnL/equity calculations must never aggregate unrelated users by accident.
 
-- reconcile이 한 사용자의 position/wallet을 다른 사용자의 account data로 덮어쓰면 안 된다.
-- PnL/equity 계산이 서로 다른 사용자를 accidental aggregation하면 안 된다.
+## 7. Order states and semantics
 
-## 7. 주문 상태와 의미
+Keep these semantics stable unless the state model itself changes.
 
-Local open-state 개념:
-
+Local open-state concept:
 - `NEW`
 - `SENT`
 - `OPEN`
 - `PARTIAL`
 - `WAIT`
 
-그 외 중요 상태:
-
+Other important states:
 - `FILLED`
 - `CANCELED`
 - `REJECTED`
@@ -131,53 +135,135 @@ Local open-state 개념:
 - `TEST_OK`
 - `SHADOW`
 
-Upbit mapping:
-
+Upbit mapping should remain semantically consistent:
 - `wait` -> `OPEN`
 - `watch` -> `OPEN`
 - `done` -> `FILLED`
 - `cancel` -> `CANCELED`
 
-## 8. 전환 중 항목
+## 8. In-transition items (not hard-frozen)
 
-이미 반영된 항목:
+Already landed on current branch:
 
-- Scheduler는 `MultiUserTradingScheduler`를 사용하며 사용자별 failure isolation을 갖는다.
-- `/api/me/*` 읽기/쓰기는 인증 사용자 identity 기준으로 사용자 scope가 적용된다.
-- Bot start/stop과 runtime status는 사용자별 `user_bot_runtime` 기준이다.
-- 핵심 trading/accounting table(`orders`, `positions`, `daily_equity`, `paper_wallet`)은 필요한 곳에 사용자 scope를 가진다.
+- Scheduler now has `MultiUserTradingScheduler` with per-user failure isolation.
+- `/api/me/*` reads/writes are user-scoped via authenticated user identity.
+- Bot start/stop and runtime status are per-user (`user_bot_runtime`).
+- Core trading/accounting tables are user-scoped where required (`orders`, `positions`, `daily_equity`, `paper_wallet`).
 
-남아 있는 compatibility zone:
+Remaining transition/compatibility zones:
 
-- `ConfigRepo.load_for_user()`는 `user_bot_config`가 없으면 global `bot_config(id=1)`로 fallback한다.
-- 일부 constructor path는 `user_id`가 생략되면 owner user를 해석한다.
+- `ConfigRepo.load_for_user()` still falls back to global `bot_config(id=1)` when `user_bot_config` is absent.
+- Some constructor paths still resolve owner user when `user_id` is omitted.
 
-durable invariant로 삼으면 안 되는 항목:
+Do not treat the following as durable invariants during V3:
 
-- global `bot_config(id=1)` fallback이 영구적으로 필요하다는 전제
-- 새 코드에서 명시적 user scope보다 implicit owner resolution을 선호하는 전제
+- global `bot_config(id=1)` fallback must exist forever
+- implicit owner resolution should be preferred over explicit per-user scope in new code
 
-## 9. V3에서 깨면 안 되는 규칙
+## 9. V3 do-not-break rules
 
-1. 사용자 간 데이터 혼합을 만들지 않는다.
-2. 인증된 `/api/me/*` 읽기를 global single-owner bridge path로 보내지 않는다.
-3. 명시적 compatibility fallback 밖에서 `bot_config(id=1)`을 필수 runtime dependency로 재도입하지 않는다.
-4. 한 사용자의 runtime 실패가 다른 사용자를 멈추게 하지 않는다.
-5. ambiguous submit 이후 identifier 기반 recovery를 깨지 않는다.
-6. 같은 fill을 두 번 적용하지 않는다.
-7. tick size, quantity rounding, 최소 주문금액 validation을 우회하지 않는다.
-8. `PAPER` local simulation과 exchange-backed mode를 혼동하지 않는다.
-9. 정상 멀티유저 운영에서 credentials/runtime을 process-global로 가정하지 않는다.
-10. idempotency 또는 reconcile logic이 사용자 간 record를 match하지 않게 한다.
+1. Do not introduce cross-user data mixing.
+2. Do not route authenticated `/api/me/*` reads through a global single-owner bridge path.
+3. Do not reintroduce `bot_config(id=1)` as a required runtime dependency outside explicit compatibility fallback.
+4. Do not make one user's runtime failure stop unrelated users.
+5. Do not break identifier-based recovery after ambiguous submit.
+6. Do not apply the same fill twice.
+7. Do not bypass validation for tick size, quantity rounding, or minimum notional.
+8. Do not confuse `PAPER` local simulation with exchange-backed modes.
+9. Do not assume credentials/runtime are process-global in normal multi-user operation.
+10. Do not let idempotency or reconcile logic match records across users.
 
-## 10. 권장 작업 prompt 순서
+## 10. Best prompt pattern for Codex in this repo during V3
 
-1. `docs/context_anchor_v3_transition.md`를 읽는다.
-2. 관련 Notion Story와 현재 branch code를 확인한다.
-3. 유지할 invariant를 먼저 말한다.
-4. backend/frontend/tests/docs를 함께 수정한다.
-5. 변경 결과를 Story/Task/Acceptance에 매핑한다.
+Use prompts in this order:
 
-예시:
+1. Read `docs/context_anchor_v3_transition.md`
+2. Read the specific files involved
+3. State which stable invariant must remain true
+4. State which V3 in-transition area is being changed
+5. Then patch
 
-> `docs/context_anchor_v3_transition.md`를 먼저 읽고, `2026-03-10 Post-V3 Ops Hardening Backlog`의 Story `Sx`를 구현한다. 사용자 간 데이터 혼합 금지, `/api/me/*` owner bridge 재도입 금지, 필수 global `bot_config(id=1)` 의존 금지, 사용자별 failure isolation, admin boundary를 유지한다. backend/tests/docs를 함께 수정하고, frontend를 건드렸다면 frontend도 함께 검증한 뒤 acceptance mapping을 반환한다.
+Example:
+
+> Read `docs/context_anchor_v3_transition.md`, then inspect the scheduler/runtime/user-scoping files involved. Keep fill idempotency, identifier-based recovery, and no cross-user data mixing intact while moving runtime control to per-user scope.
+
+## 11. Post-V3 backlog guardrails (S1~S7, 2026-03-10)
+
+Reference backlog page (Notion):
+- `https://www.notion.so/31f899b6d7dc81cb897deda764f70769`
+
+Use this section when implementing the post-V3 hardening backlog.
+
+### 11.1 Story routing
+
+- S1, S2, S3: operations visibility/readability/automation hardening
+- S4, S5, S6: compatibility and safety hardening on live paths
+- S7: risk policy expansion
+
+### 11.2 Global rules for all S1~S7 changes
+
+1. Keep user scope boundaries explicit on all read/write queries.
+2. Preserve admin/non-admin boundary checks on `/ops` and `/api/admin/*`.
+3. Preserve event naming contracts where already used by tests/runbooks/dashboards.
+4. Ship changes with backend + tests (+ frontend/docs when applicable) in the same task.
+5. Do not broaden compatibility fallbacks while adding new behavior.
+
+### 11.3 Story-specific do-not-break notes
+
+- S1 (ops visibility):
+  - Do not aggregate unrelated users into a single status row.
+  - Do not expose admin-only fields to non-admin callers.
+- S2 (audit read/search):
+  - Do not expose raw sensitive secrets in API/UI payloads.
+  - Do not add unbounded full-scan defaults for long time ranges.
+  - Keep bounded query windows (default bounded range, explicit max range guard).
+- S3 (release gate artifact):
+  - Do not report pass when required checks were skipped.
+  - Always include failure reasons in artifact output.
+  - Keep credential coverage check reproducible on CI/local (avoid environment-only pass conditions).
+- S4 (legacy bot endpoint retirement):
+  - Use staged deprecation/removal; do not break known callers without migration note.
+  - Keep `/api/me/bot/*` as the single authoritative contract.
+- S5 (auth/session hardening):
+  - Keep token-expiry behavior deterministic across frontend/backend.
+  - Preserve current admin boundary while changing session lifecycle.
+- S6 (order_attempts hardening):
+  - Validate existing data before unique constraints.
+  - Keep fill idempotency and identifier recovery semantics unchanged.
+- S7 (risk policy expansion):
+  - Expose halt reasons consistently in API/UI.
+  - Keep per-user failure isolation; one user guard trigger must not stop others.
+
+### 11.4 Recommended Codex prompt fragment for S1~S7
+
+Use this exact fragment after selecting a story:
+
+> Read `docs/context_anchor_v3_transition.md` first. Implement Story `Sx` from `2026-03-10 Post-V3 Ops Hardening Backlog` while preserving: no cross-user mixing, no owner-bridge reintroduction on `/api/me/*`, no required global `bot_config(id=1)`, per-user failure isolation, and admin boundary integrity. Patch backend/tests/docs together (plus frontend if touched), then map results to story acceptance.
+
+### 11.5 Implemented B1~B3 references (2026-03-22)
+
+Use these as current contracts for branches with B1~B3 applied:
+
+- S1 endpoint: `GET /api/admin/users/runtime-summary`
+- S2 endpoint: `GET /api/admin/audit/logs`
+  - filters: `actor_user_id`, `target_user_id`, `action`, `target_type`, `from`, `to`, `result`
+  - guardrails: default bounded window, maximum date-range guard, latest-first pagination
+- S3 command: `python scripts/run_release_gate.py --output-dir .`
+  - artifacts: `release_gate_report.json`, `release_gate_report.md`
+- S3 credential audit command: `python scripts/audit_upbit_credential_coverage.py`
+- S4 compatibility endpoint behavior:
+  - `POST /api/bot/enable|disable` -> `410 legacy_endpoint_retired`
+  - replacement path metadata: `/api/me/bot/start|stop`
+- S5 session lifecycle:
+  - token includes `token_version`; stale/revoked token yields `401 session_revoked`
+  - admin action: `POST /api/admin/users/{user_id}/sessions/invalidate`
+  - admin role source: `users.is_admin` (DB-backed)
+  - role change endpoint: `POST /api/admin/users/{user_id}/role` with token-version bump
+  - retired legacy admin aliases: `/api/ops/summary`, `/api/admin/summary`, `/api/orders`, `/api/admin/orders`, `/api/pnl/daily`, `/api/admin/pnl/daily`, `/api/metrics/trade`, `/api/admin/metrics/trade` -> `410 legacy_endpoint_retired`
+  - retired rotate alias: `POST /api/ops/credentials/rotate` -> `410 legacy_endpoint_retired` (use `/api/admin/credentials/rotate`)
+- S6 order-attempt consistency:
+  - normalized latest/next attempt calculations in shared helpers
+  - runbook: `docs/order_attempts_unique_constraints_runbook_2026-03-22.md`
+- S7 risk policy expansion:
+  - new config keys: `max_weekly_loss_pct`, `max_monthly_loss_pct`, `cooldown_hours_on_halt`, `max_new_orders_per_day`, `max_orders_per_week`, `min_edge_pct`
+  - new halt reasons: `weekly_loss_limit`, `monthly_loss_limit`, `new_orders_daily_limit`, `orders_weekly_limit`, `cooldown_active`

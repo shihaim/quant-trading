@@ -163,7 +163,7 @@ if ([string]::IsNullOrWhiteSpace($adminToken)) {
 }
 
 if (-not [bool]$adminLogin.Json.user.is_admin) {
-  throw "login admin is_admin=false. Check OPS_API_ADMIN_EMAILS or users.is_admin for $AdminEmail"
+  throw "login admin is_admin=false. Check users.is_admin for $AdminEmail"
 }
 
 Write-Host "[4/9] force member baseline role=member (for repeatable run)"
