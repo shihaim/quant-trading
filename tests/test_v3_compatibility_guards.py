@@ -67,3 +67,10 @@ def test_web_no_longer_displays_owner_user_compatibility_scope():
             offenders.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_ops_service_uses_scope_user_naming_not_owner_user():
+    source = _repo_text("trader/ops/service.py")
+
+    assert "owner_user_id" not in source
+    assert "scope_user_id" in source

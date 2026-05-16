@@ -45,19 +45,19 @@ class OpsService:
         self.session = session
         self.trade_mode = trade_mode.upper()
         self.config_repo = ConfigRepo(session)
-        self.owner_user_id = max(1, int(scope_user_id)) if scope_user_id is not None else None
+        self.scope_user_id = max(1, int(scope_user_id)) if scope_user_id is not None else None
 
     def _require_scope_user_id(self) -> int:
-        if self.owner_user_id is None:
+        if self.scope_user_id is None:
             raise ValueError("scope_user_id_required")
-        return int(self.owner_user_id)
+        return int(self.scope_user_id)
 
     def list_orders(self, state: str | None = None, limit: int = 50) -> dict:
         self._require_scope_user_id()
         q = (
             select(Order)
             .options(selectinload(Order.attempts))
-            .where(Order.user_id == self.owner_user_id)
+            .where(Order.user_id == self.scope_user_id)
             .order_by(Order.updated_at.desc())
             .limit(max(1, min(500, limit)))
         )
@@ -73,7 +73,7 @@ class OpsService:
         rows = (
             self.session.execute(
                 select(DailyEquity)
-                .where(DailyEquity.user_id == self.owner_user_id)
+                .where(DailyEquity.user_id == self.scope_user_id)
                 .order_by(DailyEquity.date_utc.desc())
                 .limit(normalized_days)
             )
@@ -117,7 +117,7 @@ class OpsService:
             self.session.execute(
                 select(TradeMetric, Order.market, Order.side)
                 .join(Order, TradeMetric.order_id == Order.id)
-                .where(Order.user_id == self.owner_user_id)
+                .where(Order.user_id == self.scope_user_id)
                 .order_by(TradeMetric.created_at.desc())
                 .limit(normalized_limit)
             )
@@ -132,24 +132,24 @@ class OpsService:
         day_start_utc = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start_utc = self._week_start_utc(now_utc)
         month_start_utc = self._month_start_utc(now_utc)
-        cfg = self.config_repo.load_for_user(self.owner_user_id)
-        runtime_state = self.config_repo.get_runtime_state(self.owner_user_id)
+        cfg = self.config_repo.load_for_user(self.scope_user_id)
+        runtime_state = self.config_repo.get_runtime_state(self.scope_user_id)
         runtime_row = self.session.execute(
-            select(UserBotRuntime).where(UserBotRuntime.user_id == self.owner_user_id)
+            select(UserBotRuntime).where(UserBotRuntime.user_id == self.scope_user_id)
         ).scalar_one_or_none()
         today = self._today_pnl_snapshot(cfg, now_utc.date())
         weekly_loss_pct = self._period_loss_pct_for_user(
-            user_id=self.owner_user_id,
+            user_id=self.scope_user_id,
             start_date=week_start_utc.date(),
             end_date=now_utc.date(),
         )
         monthly_loss_pct = self._period_loss_pct_for_user(
-            user_id=self.owner_user_id,
+            user_id=self.scope_user_id,
             start_date=month_start_utc.date(),
             end_date=now_utc.date(),
         )
-        new_orders_today = self._count_orders_since_for_user(user_id=self.owner_user_id, since=day_start_utc)
-        orders_this_week = self._count_orders_since_for_user(user_id=self.owner_user_id, since=week_start_utc)
+        new_orders_today = self._count_orders_since_for_user(user_id=self.scope_user_id, since=day_start_utc)
+        orders_this_week = self._count_orders_since_for_user(user_id=self.scope_user_id, since=week_start_utc)
         orders = self._orders_snapshot(needs_review_limit=needs_review_limit)
         execution = self._execution_quality_snapshot(cfg=cfg, now_utc=now_utc, limit=metrics_limit)
         daily_breach_count = self._count_breach_since(
@@ -494,7 +494,7 @@ class OpsService:
         return total_abs / start_equity
 
     def _today_pnl_snapshot(self, cfg: RuntimeConfig, today_utc: date) -> dict:
-        row = self.session.get(DailyEquity, (self.owner_user_id, today_utc))
+        row = self.session.get(DailyEquity, (self.scope_user_id, today_utc))
         if row is None:
             halt_threshold = -abs(to_decimal(cfg.max_daily_loss_pct))
             return {
@@ -542,7 +542,7 @@ class OpsService:
     def _orders_snapshot(self, needs_review_limit: int) -> dict:
         grouped = self.session.execute(
             select(Order.state, func.count())
-            .where(Order.user_id == self.owner_user_id)
+            .where(Order.user_id == self.scope_user_id)
             .group_by(Order.state)
         ).all()
         by_state = {state: int(count) for state, count in grouped}
@@ -550,7 +550,7 @@ class OpsService:
             self.session.execute(
                 select(Order)
                 .options(selectinload(Order.attempts))
-                .where(Order.user_id == self.owner_user_id, Order.state == REVIEW_STATE)
+                .where(Order.user_id == self.scope_user_id, Order.state == REVIEW_STATE)
                 .order_by(Order.updated_at.desc())
                 .limit(max(1, min(100, needs_review_limit)))
             )
@@ -573,7 +573,7 @@ class OpsService:
             self.session.execute(
                 select(TradeMetric, Order.market, Order.side)
                 .join(Order, TradeMetric.order_id == Order.id)
-                .where(Order.user_id == self.owner_user_id)
+                .where(Order.user_id == self.scope_user_id)
                 .order_by(TradeMetric.created_at.desc())
                 .limit(normalized_limit)
             )
@@ -622,7 +622,7 @@ class OpsService:
 
     def _count_breach_since(self, since: datetime, entry_budget: Decimal, exit_budget: Decimal) -> int:
         return self._count_breach_since_for_user(
-            user_id=self.owner_user_id,
+            user_id=self.scope_user_id,
             since=since,
             entry_budget=entry_budget,
             exit_budget=exit_budget,
@@ -768,18 +768,18 @@ class OpsService:
 
     def _last_tick_utc(self) -> datetime | None:
         latest_order = ensure_utc(
-            self.session.scalar(select(func.max(Order.updated_at)).where(Order.user_id == self.owner_user_id))
+            self.session.scalar(select(func.max(Order.updated_at)).where(Order.user_id == self.scope_user_id))
         )
         latest_metric = ensure_utc(
             self.session.scalar(
                 select(func.max(TradeMetric.created_at))
                 .join(Order, TradeMetric.order_id == Order.id)
-                .where(Order.user_id == self.owner_user_id)
+                .where(Order.user_id == self.scope_user_id)
             )
         )
         latest_equity = ensure_utc(
             self.session.scalar(
-                select(func.max(DailyEquity.updated_at)).where(DailyEquity.user_id == self.owner_user_id)
+                select(func.max(DailyEquity.updated_at)).where(DailyEquity.user_id == self.scope_user_id)
             )
         )
         candidates = [ts for ts in [latest_order, latest_metric, latest_equity] if ts is not None]

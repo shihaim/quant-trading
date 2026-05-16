@@ -39,12 +39,14 @@
 ### Legacy 응답 형태
 
 - 완료: `apps/web` 타입과 화면 표시에서는 `owner_user_id` 및 `compatibility user` 문구를 제거했다.
-- 백엔드 응답 필드 자체 제거는 API shape 변경이므로 versioned response 정리 작업에서 별도로 처리한다.
+- 완료: `/api/me/*` 백엔드 응답에는 legacy `owner_user_id` scope 필드가 없다.
+- 완료: `OpsService` 내부 명명도 `scope_user_id` 기준으로 정리해 새 API/서비스 계층에서 owner scope 용어를 쓰지 않는다.
 
 ## 추가된 보호 장치
 
 - `tests/test_v3_compatibility_guards.py`는 `/api/me/*` read service가 계속 명시적인 사용자 scope를 `OpsService`에 전달하는지 확인한다.
 - 같은 테스트는 `resolve_owner_user_id()` 사용을 위에 적은 알려진 호환성 경로로 제한한다.
+- 같은 테스트는 `apps/web` 및 `OpsService`에 legacy owner scope 용어가 재도입되지 않도록 확인한다.
 
 ## 제거 순서
 
@@ -56,6 +58,7 @@
 6. 완료: 배포 문서에서 영구 `OPS_API_ADMIN_EMAILS` 사용을 제거하고, 비상 시 DB/API role grant 절차만 남겼다.
 7. 완료: P1 rehearsal owner fallback을 `PAPER` 전용으로 제한하고 비-PAPER 실행에서는 명시적인 `--user-id`를 요구한다.
 8. 완료: 프론트 타입과 사용자 화면에서 `owner_user_id` 호환성 표시를 제거한다.
+9. 완료: API/서비스 계층에서 legacy owner scope 응답/명명을 제거하고 `scope_user_id` 명명을 유지한다.
 
 ## Acceptance 매핑
 
@@ -63,3 +66,4 @@
 - 새 `/api/me/*` read 경로가 owner 대체 해석을 쓰지 않도록 보호 장치를 추가했다.
 - admin allowlist 대체 경로는 제거되었고, admin 권한은 DB role로만 판정된다.
 - 프론트는 `scope.user_id`만 표시하고, legacy owner scope 용어를 사용자 화면에 노출하지 않는다.
+- 백엔드 `/api/me/*` 응답과 `OpsService`는 legacy owner scope 필드를 노출하지 않는다.
