@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from trader.data.db import Base
-from trader.data.models import BotConfig, DailyEquity, Order, OrderAttempt, TradeMetric
+from trader.data.models import DailyEquity, Order, OrderAttempt, TradeMetric, UserBotConfig
 from trader.ops.service import OpsService
 
 
@@ -87,8 +87,8 @@ def test_ops_summary_aggregates_counts_pnl_and_metrics():
     today = datetime.now(timezone.utc).date()
 
     session.add(
-        BotConfig(
-            id=1,
+        UserBotConfig(
+            user_id=1,
             is_enabled=True,
             timeframe="240m",
             markets_json='["KRW-BTC"]',
@@ -194,8 +194,8 @@ def test_ops_summary_marks_halted_when_disabled_and_loss_limit_breached():
     today = datetime.now(timezone.utc).date()
 
     session.add(
-        BotConfig(
-            id=1,
+        UserBotConfig(
+            user_id=1,
             is_enabled=False,
             timeframe="240m",
             markets_json='["KRW-BTC"]',

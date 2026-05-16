@@ -141,6 +141,21 @@ def test_load_for_user_reads_extended_risk_policy_fields():
     assert cfg.min_edge_pct == Decimal("0.0025")
 
 
+def test_load_for_user_creates_user_config_without_global_bot_config_fallback():
+    session = _session()
+    session.add(BotConfig(id=1, timeframe="240m", markets_json='["KRW-ETH"]'))
+    session.add(User(email="default-user-config@example.com", password_hash="hash"))
+    session.commit()
+
+    cfg = ConfigRepo(session).load_for_user(1)
+
+    row = session.query(UserBotConfig).filter_by(user_id=1).one()
+    assert cfg.timeframe == "15m"
+    assert cfg.markets == ["KRW-BTC"]
+    assert row.timeframe == "15m"
+    assert row.markets_json == '["KRW-BTC"]'
+
+
 def test_runtime_state_defaults_and_set_enabled():
     session = _session()
     session.add(User(email="runtime@example.com", password_hash="hash"))

@@ -157,7 +157,7 @@ def build_v3_user_scope_sql_plan(owner_user_id: int = 1) -> V3UserScopeSqlPlan:
         "-- dual-path: write both legacy and user-scoped paths",
         "Persist user_id on order create, fill application, position updates, and daily_equity snapshots.",
         "Use user-scoped idempotency key policy: (user_id, client_order_id).",
-        "Read runtime config from user_bot_config with fallback to bot_config.",
+        "Read runtime config from user_bot_config; create a default user row if missing.",
         "Read runtime state from user_bot_runtime with fallback defaults.",
     )
     cleanup_sql = (

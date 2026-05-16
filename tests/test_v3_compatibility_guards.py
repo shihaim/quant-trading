@@ -74,3 +74,13 @@ def test_ops_service_uses_scope_user_naming_not_owner_user():
 
     assert "owner_user_id" not in source
     assert "scope_user_id" in source
+
+
+def test_load_for_user_does_not_fallback_to_global_bot_config():
+    source = _repo_text("trader/config/config_repo.py")
+    start = source.index("    def load_for_user")
+    end = source.index("    def get_runtime_state", start)
+    method = source[start:end]
+
+    assert "self.load()" not in method
+    assert "UserBotConfig(user_id=normalized_user_id)" in method

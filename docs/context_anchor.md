@@ -118,7 +118,8 @@ Gate:
 Bot config source:
 
 - 주 소스: active `user_id`의 `user_bot_config` row.
-- fallback 소스: user row가 없을 때 global `bot_config.id = 1`.
+- user row가 없으면 기본 `user_bot_config` row를 생성한다.
+- `load_for_user()`는 global `bot_config.id = 1`로 fallback하지 않는다.
 - active timeframe 소스: `timeframe_config`에서 `is_enabled=true`인 첫 row, `id ASC` 기준.
 - 선택된 timeframe이 invalid이면 `15m`으로 fallback.
 - runtime enable/status 소스: 사용자별 `user_bot_runtime`.

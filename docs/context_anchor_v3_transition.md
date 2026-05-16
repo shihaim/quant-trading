@@ -80,7 +80,8 @@ Do not assume these legacy patterns remain valid:
 - one global bot enable/disable switch
 
 Current branch note:
-- `load_for_user()` uses `user_bot_config` first and only falls back to global `bot_config(id=1)` for compatibility.
+- `load_for_user()` uses `user_bot_config`; if a user row is missing, it creates a default `user_bot_config` row.
+- `load_for_user()` no longer falls back to global `bot_config(id=1)`.
 
 ## 5. Order execution invariants
 
@@ -152,8 +153,7 @@ Already landed on current branch:
 
 Remaining transition/compatibility zones:
 
-- `ConfigRepo.load_for_user()` still falls back to global `bot_config(id=1)` when `user_bot_config` is absent.
-- Some constructor paths still resolve owner user when `user_id` is omitted.
+- Some local compatibility paths still resolve owner user when `user_id` is omitted.
 
 Do not treat the following as durable invariants during V3:
 

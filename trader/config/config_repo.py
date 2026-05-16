@@ -113,13 +113,16 @@ class ConfigRepo:
         return cfg
 
     def load_for_user(self, user_id: int) -> RuntimeConfig:
-        """Load user-scoped runtime config and fallback to global config when missing."""
+        """Load user-scoped runtime config, creating a default user row when missing."""
         normalized_user_id = max(1, int(user_id))
         row = self.session.execute(
             select(UserBotConfig).where(UserBotConfig.user_id == normalized_user_id)
         ).scalar_one_or_none()
         if row is None:
-            return self.load()
+            row = UserBotConfig(user_id=normalized_user_id)
+            self.session.add(row)
+            self.session.commit()
+            self.session.refresh(row)
         return self._build_runtime_config(row)
 
     def get_runtime_state(self, user_id: int) -> RuntimeState:
