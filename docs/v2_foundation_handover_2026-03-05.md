@@ -70,7 +70,7 @@
 - `/api/me/*` 조회 응답은 `scope` 메타데이터를 포함
   - `mode`: `legacy_single_bot_owner_bridge`
   - `user_id`
-  - `owner_user_id`
+- 2026-05-16 F2 정리 이후 프론트 타입과 화면은 `user_id`만 표준 scope로 표시한다.
 
 ## 4) 프론트 연동 상태
 

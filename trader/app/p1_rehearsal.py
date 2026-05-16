@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
         "--user-id",
         type=int,
         default=None,
-        help="explicit user id for V3 user-scoped rehearsal; omitted keeps legacy owner fallback",
+        help="explicit user id for V3 user-scoped rehearsal; required outside PAPER mode",
     )
     return parser.parse_args()
 
@@ -35,6 +35,8 @@ def parse_args() -> argparse.Namespace:
 def _resolve_rehearsal_user_id(config_repo: ConfigRepo, *, explicit_user_id: int | None) -> int:
     if explicit_user_id is not None:
         return max(1, int(explicit_user_id))
+    if settings.trade_mode.upper() != "PAPER":
+        raise ValueError("user_id_required")
     return int(config_repo.resolve_owner_user_id())
 
 

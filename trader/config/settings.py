@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     ops_api_allow_origin: str = Field(default="*", alias="OPS_API_ALLOW_ORIGIN")
     ops_api_auth_secret: str = Field(default="dev-ops-auth-secret-change-me", alias="OPS_API_AUTH_SECRET")
     ops_api_auth_token_ttl_seconds: int = Field(default=43200, alias="OPS_API_AUTH_TOKEN_TTL_SECONDS")
-    ops_api_admin_emails: list[str] = Field(default_factory=list, alias="OPS_API_ADMIN_EMAILS")
     ops_api_credentials_encryption_key: str = Field(
         default="dev-ops-credentials-encryption-key-change-me",
         alias="OPS_API_CREDENTIALS_ENCRYPTION_KEY",

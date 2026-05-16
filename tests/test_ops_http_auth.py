@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from trader.api.ops_http import create_ops_handler
+from trader.auth.roles import AdminRoleResolver
 from trader.audit.service import (
     ACTION_ADMIN_ACTION,
     ACTION_BOT_START,
@@ -54,6 +55,20 @@ def _request_json(
     conn.close()
     parsed = json.loads(raw.decode("utf-8")) if raw else {}
     return response.status, parsed
+
+
+def _grant_admin_role(Session, email: str) -> None:
+    with Session() as session:
+        user = session.execute(select(User).where(User.email == email)).scalar_one()
+        user.is_admin = True
+        session.add(user)
+        session.commit()
+
+
+def test_admin_role_resolver_ignores_allowlist_without_db_role():
+    user = type("User", (), {"email": "admin@example.com", "is_admin": False})()
+
+    assert AdminRoleResolver(allowlist_emails=["admin@example.com"]).is_admin(user=user) is False
 
 
 def test_auth_endpoints_support_signup_login_and_me(tmp_path):
@@ -391,8 +406,6 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
 
 
 def test_admin_ops_routes_require_admin_role(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
-
     db_path = tmp_path / "ops-http-admin-auth.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
     Base.metadata.create_all(bind=engine)
@@ -454,6 +467,7 @@ def test_admin_ops_routes_require_admin_role(tmp_path, monkeypatch):
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
+        _grant_admin_role(Session, "admin@example.com")
         status, payload = _request_json(
             port=server.server_port,
             method="POST",
@@ -523,8 +537,6 @@ def test_admin_ops_routes_require_admin_role(tmp_path, monkeypatch):
 
 
 def test_admin_user_scoped_routes_enforce_admin_and_target_scope(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
-
     db_path = tmp_path / "ops-http-admin-user-scope.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
     Base.metadata.create_all(bind=engine)
@@ -548,6 +560,7 @@ def test_admin_user_scoped_routes_enforce_admin_and_target_scope(tmp_path, monke
                 payload={"email": email, "password": "strong-pass-123"},
             )
             assert status == 201
+        _grant_admin_role(Session, "admin@example.com")
 
         status, payload = _request_json(
             port=server.server_port,
@@ -766,8 +779,6 @@ def test_admin_user_scoped_routes_enforce_admin_and_target_scope(tmp_path, monke
 
 
 def test_admin_can_invalidate_user_sessions_with_token_version_bump(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
-
     db_path = tmp_path / "ops-http-admin-session-invalidate.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
     Base.metadata.create_all(bind=engine)
@@ -797,6 +808,7 @@ def test_admin_can_invalidate_user_sessions_with_token_version_bump(tmp_path, mo
             payload={"email": "member@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
+        _grant_admin_role(Session, "admin@example.com")
 
         status, payload = _request_json(
             port=server.server_port,
@@ -896,8 +908,6 @@ def test_admin_can_invalidate_user_sessions_with_token_version_bump(tmp_path, mo
 
 
 def test_admin_role_update_uses_db_role_and_revokes_existing_session(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "ops_api_admin_emails", [])
-
     db_path = tmp_path / "ops-http-admin-role-update.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
     Base.metadata.create_all(bind=engine)
@@ -1000,7 +1010,6 @@ def test_admin_role_update_uses_db_role_and_revokes_existing_session(tmp_path, m
 
 
 def test_admin_alias_routes_retire_and_key_rotation_endpoint(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
     monkeypatch.setattr(settings, "ops_api_credentials_encryption_key", "ops-key-v1")
     monkeypatch.setattr(settings, "ops_api_credentials_active_key_version", "v1")
     monkeypatch.setattr(settings, "ops_api_credentials_keyring_json", json.dumps({"v1": "ops-key-v1", "v2": "ops-key-v2"}))
@@ -1027,6 +1036,7 @@ def test_admin_alias_routes_retire_and_key_rotation_endpoint(tmp_path, monkeypat
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
+        _grant_admin_role(Session, "admin@example.com")
         status, payload = _request_json(
             port=server.server_port,
             method="POST",
@@ -1110,8 +1120,6 @@ def test_admin_alias_routes_retire_and_key_rotation_endpoint(tmp_path, monkeypat
 
 
 def test_admin_user_runtime_summary_endpoint_enforces_boundary_and_reflects_state(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
-
     db_path = tmp_path / "ops-http-admin-runtime-summary.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
     Base.metadata.create_all(bind=engine)
@@ -1134,6 +1142,7 @@ def test_admin_user_runtime_summary_endpoint_enforces_boundary_and_reflects_stat
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
+        _grant_admin_role(Session, "admin@example.com")
         status, payload = _request_json(
             port=server.server_port,
             method="POST",
@@ -1315,8 +1324,6 @@ def test_admin_user_runtime_summary_endpoint_enforces_boundary_and_reflects_stat
 
 
 def test_admin_audit_logs_endpoint_supports_filters_pagination_and_admin_boundary(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "ops_api_admin_emails", ["admin@example.com"])
-
     db_path = tmp_path / "ops-http-admin-audit-logs.db"
     engine = create_engine(f"sqlite+pysqlite:///{db_path.resolve().as_posix()}", future=True)
     Base.metadata.create_all(bind=engine)
@@ -1339,6 +1346,7 @@ def test_admin_audit_logs_endpoint_supports_filters_pagination_and_admin_boundar
             payload={"email": "admin@example.com", "password": "strong-pass-123"},
         )
         assert status == 201
+        _grant_admin_role(Session, "admin@example.com")
         status, payload = _request_json(
             port=server.server_port,
             method="POST",

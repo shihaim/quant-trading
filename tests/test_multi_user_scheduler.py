@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -11,7 +12,7 @@ from trader.config.config_repo import RuntimeConfig
 from trader.data.db import Base
 from trader.data.models import User, UserBotRuntime, UserExchangeCredential, UserRiskGuard
 from trader.trading import scheduler as scheduler_module
-from trader.trading.scheduler import MultiUserTradingScheduler
+from trader.trading.scheduler import MultiUserTradingScheduler, TradingScheduler
 
 
 def _session_factory():
@@ -30,6 +31,24 @@ def _cfg() -> RuntimeConfig:
         max_total_exposure_pct=Decimal("0.30"),
         max_per_market_exposure_pct=Decimal("0.10"),
     )
+
+
+def test_trading_scheduler_requires_explicit_user_id(monkeypatch):
+    monkeypatch.setattr(scheduler_module.settings, "trade_mode", "PAPER")
+    Session = _session_factory()
+    with Session() as session:
+        with pytest.raises(ValueError, match="user_id_required"):
+            TradingScheduler(session=session)
+
+
+def test_trading_scheduler_accepts_explicit_user_id(monkeypatch):
+    monkeypatch.setattr(scheduler_module.settings, "trade_mode", "PAPER")
+    Session = _session_factory()
+    with Session() as session:
+        scheduler = TradingScheduler(session=session, user_id=3)
+
+        assert scheduler.user_id == 3
+        scheduler.upbit.close()
 
 
 def test_list_active_user_ids_requires_runtime_enabled_and_credentials(monkeypatch):

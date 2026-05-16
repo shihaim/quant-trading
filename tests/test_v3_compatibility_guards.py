@@ -18,7 +18,6 @@ def test_me_read_service_never_uses_owner_resolution():
 def test_owner_resolution_usage_is_limited_to_known_compatibility_paths():
     allowed_paths = {
         "trader/config/config_repo.py",
-        "trader/trading/scheduler.py",
         "trader/app/p1_rehearsal.py",
         "tests/test_config_repo.py",
     }
@@ -39,6 +38,7 @@ def test_f2_cleanup_plan_documents_remaining_compatibility_zones():
     doc = _repo_text("docs/f2_v3_compatibility_fallback_cleanup_plan_2026-05-16.md")
 
     assert "TradingScheduler(user_id=None)" in doc
+    assert "hard error" in doc
     assert "trader/app/p1_rehearsal.py" in doc
     assert "--user-id" in doc
     assert "OPS_API_ADMIN_EMAILS" in doc
@@ -50,4 +50,20 @@ def test_p1_rehearsal_owner_resolution_is_fallback_only():
 
     assert "--user-id" in source
     assert "_resolve_rehearsal_user_id" in source
-    assert "if explicit_user_id is not None" in source
+    assert 'settings.trade_mode.upper() != "PAPER"' in source
+    assert 'raise ValueError("user_id_required")' in source
+
+
+def test_web_no_longer_displays_owner_user_compatibility_scope():
+    web_root = REPO_ROOT / "apps" / "web"
+    web_files = []
+    for relative_root in ("app", "components", "lib"):
+        for suffix in ("*.ts", "*.tsx"):
+            web_files.extend((web_root / relative_root).rglob(suffix))
+    offenders = []
+    for path in web_files:
+        source = path.read_text(encoding="utf-8")
+        if "owner_user_id" in source or "compatibility user" in source:
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []

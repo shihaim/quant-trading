@@ -255,7 +255,6 @@ export interface AuthTokenResponse {
 export interface ApiScope {
   mode: string;
   user_id: number;
-  owner_user_id: number;
 }
 
 export interface MeOrderItem {

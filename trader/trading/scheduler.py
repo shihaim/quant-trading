@@ -56,7 +56,9 @@ class TradingScheduler:
     ):
         self.session = session
         self.config_repo = ConfigRepo(session)
-        self.user_id = max(1, int(user_id if user_id is not None else self.config_repo.resolve_owner_user_id()))
+        if user_id is None:
+            raise ValueError("user_id_required")
+        self.user_id = max(1, int(user_id))
         self.trade_mode = settings.trade_mode.upper()
         self.is_paper = self.trade_mode == "PAPER"
         self.allowed_markets = set(settings.allowlist_markets) if settings.enforce_market_allowlist else set()

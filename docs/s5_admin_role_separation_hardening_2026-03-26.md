@@ -24,7 +24,7 @@
 1. DB 기반 admin role
 - model과 lightweight migration 경로에 `users.is_admin` column을 추가했다.
 - `AdminRoleResolver`(`trader/auth/roles.py`)를 추가했다.
-- 전환기 resolver 전략: `users.is_admin` 또는 `OPS_API_ADMIN_EMAILS` allowlist.
+- 최신 F2 정리 이후 resolver 전략: `users.is_admin` DB role만 사용한다. env allowlist 기반 권한 판정은 제거했다.
 
 2. Role 변경 API와 session lifecycle
 - `POST /api/admin/users/{user_id}/role` 추가.
