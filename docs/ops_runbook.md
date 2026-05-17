@@ -277,10 +277,43 @@ docker logs qt-trader --tail 200
 - 안전 범위: repo가 관리하는 KST helper view allowlist만 `DROP VIEW IF EXISTS`로 제거한다. 운영자가 별도로 만든 `public` view는 삭제 대상이 아니다.
 - 권한 주의: `ALTER DATABASE` 또는 `ALTER ROLE` 권한이 없는 계정으로 실행하면 실패할 수 있다. 실패 시 superuser 또는 DB owner 계정으로 실행한다.
 - 실행 전 권장: 스키마 변경과 동일하게 `pg_dump -Fc` 백업을 먼저 남긴다.
+- 사용 시점: KST helper view를 제거하고 DB/role timezone 기준을 `Asia/Seoul`로 통일하는 운영 전환 작업에서만 사용한다. 일반 장애 대응 중 원인 확인 없이 반복 실행하지 않는다.
+
+실행 전 확인:
+
+```sql
+SELECT current_database() AS database_name, current_user AS role_name, current_setting('TimeZone') AS timezone;
+SELECT schemaname, viewname
+FROM pg_views
+WHERE schemaname = 'public'
+  AND viewname IN (
+    'bot_config_kst', 'timeframe_config_kst', 'candles_kst', 'orders_kst',
+    'audit_log_kst', 'user_risk_guard_kst', 'user_api_budget_kst', 'fills_kst',
+    'trade_metrics_kst', 'positions_kst', 'daily_equity_kst', 'paper_wallet_kst',
+    'schema_table_docs_kst', 'schema_column_docs_kst'
+  )
+ORDER BY viewname;
+```
 
 ```powershell
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/ops_drop_views_set_timezone_asia_seoul.sql
 ```
+
+실행 후 확인:
+
+```sql
+SELECT current_database() AS database_name, current_user AS role_name, current_setting('TimeZone') AS timezone;
+SELECT schemaname, viewname
+FROM pg_views
+WHERE schemaname = 'public'
+  AND viewname LIKE '%\_kst' ESCAPE '\'
+ORDER BY viewname;
+```
+
+Rollback 기대치:
+- `ALTER DATABASE/ROLE ... SET timezone` 변경을 되돌려야 하면 이전 timezone 값으로 다시 `ALTER DATABASE ... SET timezone` 및 `ALTER ROLE ... SET timezone`을 실행한다.
+- 제거된 KST helper view가 다시 필요하면 앱 bootstrap 경로 또는 백업 SQL을 통해 repo-managed view만 재생성한다.
+- 운영자가 직접 만든 `public` view는 이 helper의 삭제 대상이 아니므로, 삭제가 관측되면 helper 외 수동 작업 또는 다른 migration 실행 여부를 먼저 확인한다.
 
 ## 8) DB 백업, 복원, 롤백
 
@@ -542,21 +575,30 @@ PostgreSQL:
 
 ```sql
 -- grant
-UPDATE users SET is_admin = TRUE WHERE email = '<target-email>';
+BEGIN;
+UPDATE users
+SET is_admin = TRUE,
+    token_version = token_version + 1
+WHERE email = '<target-email>'
+RETURNING id, email, is_admin, token_version;
+-- 결과 확인 후 COMMIT 또는 ROLLBACK
 
 -- revoke
-UPDATE users SET is_admin = FALSE WHERE email = '<target-email>';
-```
-
-대상 사용자가 현재 로그인 중이면 활성 session을 무효화한다:
-
-```sql
+BEGIN;
 UPDATE users
-SET token_version = token_version + 1
-WHERE email = '<target-email>';
+SET is_admin = FALSE,
+    token_version = token_version + 1
+WHERE email = '<target-email>'
+RETURNING id, email, is_admin, token_version;
+-- 결과 확인 후 COMMIT 또는 ROLLBACK
 ```
 
-비상 경로도 `OPS_API_ADMIN_EMAILS`를 사용하지 않는다. 운영자 권한 복구가 필요하면 위 DB 갱신으로 `users.is_admin`을 직접 조정한 뒤 token version을 증가시킨다.
+운영자가 반드시 확인할 점:
+- `RETURNING` 결과가 0 rows이면 대상 email이 없거나 다른 DB에 접속한 것이다. 이 경우 `COMMIT`하지 말고 `ROLLBACK`한다.
+- `RETURNING` 결과의 `email`, `is_admin`, `token_version`을 확인한 뒤에만 `COMMIT`한다.
+- role 변경과 `token_version` 증가는 같은 transaction 안에서 처리한다. 둘 중 하나만 적용하면 권한 상태와 기존 session 무효화 상태가 어긋날 수 있다.
+
+비상 경로도 `OPS_API_ADMIN_EMAILS`를 사용하지 않는다. 운영자 권한 복구가 필요하면 위 DB 갱신으로 `users.is_admin` 조정과 token version 증가를 같은 transaction에서 처리한다.
 
 ### 12.4 검증 checklist
 
