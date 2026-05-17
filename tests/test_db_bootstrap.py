@@ -196,9 +196,9 @@ def test_postgres_positions_user_scope_repairs_legacy_primary_key(monkeypatch):
     fake_conn = _FakeConn()
     monkeypatch.setattr(db_module, "inspect", lambda _conn: inspector_stub)
 
-    _postgres_ensure_positions_user_scope(fake_conn, owner_user_id=7)
+    _postgres_ensure_positions_user_scope(fake_conn, legacy_user_id=7)
 
     combined = "\n".join(fake_conn.statements)
-    assert "UPDATE positions SET user_id = COALESCE(user_id, :owner_user_id) WHERE user_id IS NULL" in combined
+    assert "UPDATE positions SET user_id = COALESCE(user_id, :legacy_user_id) WHERE user_id IS NULL" in combined
     assert 'ALTER TABLE positions DROP CONSTRAINT "positions_pkey"' in combined
     assert "ALTER TABLE positions ADD PRIMARY KEY (user_id, market)" in combined

@@ -1,4 +1,4 @@
-﻿from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from trader.config.settings import settings
@@ -67,7 +67,7 @@ COLUMN_DOCS_EN = {
     },
     "user_risk_guard": {
         "id": "Primary key.",
-        "user_id": "User owner id.",
+        "user_id": "Scoped user id.",
         "manual_halt": "Manual halt flag for this user runtime.",
         "emergency_kill_switch": "Emergency stop flag for this user runtime.",
         "reason": "Operator-entered halt reason text.",
@@ -853,22 +853,22 @@ def _get_kst_view_sql(bind) -> dict[str, str]:
     return SQLITE_KST_VIEW_SQL
 
 
-def _resolve_legacy_owner_user_id(conn) -> int:
+def _resolve_legacy_user_id(conn) -> int:
     inspector = inspect(conn)
     table_names = set(inspector.get_table_names())
-    owner_user_id = None
+    legacy_user_id = None
     if "user_exchange_credentials" in table_names:
-        owner_user_id = conn.execute(text("SELECT MIN(user_id) FROM user_exchange_credentials")).scalar_one_or_none()
-    if owner_user_id is None and "users" in table_names:
-        owner_user_id = conn.execute(text("SELECT MIN(id) FROM users")).scalar_one_or_none()
-    return int(owner_user_id or 1)
+        legacy_user_id = conn.execute(text("SELECT MIN(user_id) FROM user_exchange_credentials")).scalar_one_or_none()
+    if legacy_user_id is None and "users" in table_names:
+        legacy_user_id = conn.execute(text("SELECT MIN(id) FROM users")).scalar_one_or_none()
+    return int(legacy_user_id or 1)
 
 
-def _ensure_user_scope_column(conn, *, table_name: str, owner_user_id: int) -> None:
+def _ensure_user_scope_column(conn, *, table_name: str, legacy_user_id: int) -> None:
     cols = {col["name"] for col in inspect(conn).get_columns(table_name)}
     if "user_id" not in cols:
         conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN user_id INTEGER DEFAULT 1"))
-    conn.execute(text(f"UPDATE {table_name} SET user_id = COALESCE(user_id, :owner_user_id)"), {"owner_user_id": owner_user_id})
+    conn.execute(text(f"UPDATE {table_name} SET user_id = COALESCE(user_id, :legacy_user_id)"), {"legacy_user_id": legacy_user_id})
 
 
 def _pk_columns(conn, table_name: str) -> list[str]:
@@ -884,7 +884,7 @@ def _quote_ident(identifier: str) -> str:
     return '"' + str(identifier).replace('"', '""') + '"'
 
 
-def _postgres_ensure_daily_equity_user_scope(conn, *, owner_user_id: int) -> None:
+def _postgres_ensure_daily_equity_user_scope(conn, *, legacy_user_id: int) -> None:
     inspector = inspect(conn)
     table_names = set(inspector.get_table_names())
     if "daily_equity" not in table_names:
@@ -894,8 +894,8 @@ def _postgres_ensure_daily_equity_user_scope(conn, *, owner_user_id: int) -> Non
     if "user_id" not in daily_cols:
         conn.execute(text("ALTER TABLE daily_equity ADD COLUMN user_id INTEGER"))
     conn.execute(
-        text("UPDATE daily_equity SET user_id = COALESCE(user_id, :owner_user_id) WHERE user_id IS NULL"),
-        {"owner_user_id": owner_user_id},
+        text("UPDATE daily_equity SET user_id = COALESCE(user_id, :legacy_user_id) WHERE user_id IS NULL"),
+        {"legacy_user_id": legacy_user_id},
     )
     conn.execute(text("ALTER TABLE daily_equity ALTER COLUMN user_id SET DEFAULT 1"))
     conn.execute(text("ALTER TABLE daily_equity ALTER COLUMN user_id SET NOT NULL"))
@@ -938,7 +938,7 @@ def _postgres_ensure_daily_equity_user_scope(conn, *, owner_user_id: int) -> Non
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_equity_user_id ON daily_equity(user_id)"))
 
 
-def _postgres_ensure_positions_user_scope(conn, *, owner_user_id: int) -> None:
+def _postgres_ensure_positions_user_scope(conn, *, legacy_user_id: int) -> None:
     inspector = inspect(conn)
     table_names = set(inspector.get_table_names())
     if "positions" not in table_names:
@@ -948,8 +948,8 @@ def _postgres_ensure_positions_user_scope(conn, *, owner_user_id: int) -> None:
     if "user_id" not in position_cols:
         conn.execute(text("ALTER TABLE positions ADD COLUMN user_id INTEGER"))
     conn.execute(
-        text("UPDATE positions SET user_id = COALESCE(user_id, :owner_user_id) WHERE user_id IS NULL"),
-        {"owner_user_id": owner_user_id},
+        text("UPDATE positions SET user_id = COALESCE(user_id, :legacy_user_id) WHERE user_id IS NULL"),
+        {"legacy_user_id": legacy_user_id},
     )
     conn.execute(text("ALTER TABLE positions ALTER COLUMN user_id SET DEFAULT 1"))
     conn.execute(text("ALTER TABLE positions ALTER COLUMN user_id SET NOT NULL"))
@@ -980,9 +980,9 @@ def _postgres_ensure_positions_user_scope(conn, *, owner_user_id: int) -> None:
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_positions_user_id ON positions(user_id)"))
 
 
-def _sqlite_rebuild_positions_user_scope(conn, *, owner_user_id: int) -> None:
+def _sqlite_rebuild_positions_user_scope(conn, *, legacy_user_id: int) -> None:
     cols = {col["name"] for col in inspect(conn).get_columns("positions")}
-    user_expr = "COALESCE(user_id, :owner_user_id)" if "user_id" in cols else ":owner_user_id"
+    user_expr = "COALESCE(user_id, :legacy_user_id)" if "user_id" in cols else ":legacy_user_id"
     conn.execute(text("ALTER TABLE positions RENAME TO positions_v3_old"))
     conn.execute(
         text(
@@ -1024,14 +1024,14 @@ def _sqlite_rebuild_positions_user_scope(conn, *, owner_user_id: int) -> None:
             FROM positions_v3_old
             """
         ),
-        {"owner_user_id": owner_user_id},
+        {"legacy_user_id": legacy_user_id},
     )
     conn.execute(text("DROP TABLE positions_v3_old"))
 
 
-def _sqlite_rebuild_daily_equity_user_scope(conn, *, owner_user_id: int) -> None:
+def _sqlite_rebuild_daily_equity_user_scope(conn, *, legacy_user_id: int) -> None:
     cols = {col["name"] for col in inspect(conn).get_columns("daily_equity")}
-    user_expr = "COALESCE(user_id, :owner_user_id)" if "user_id" in cols else ":owner_user_id"
+    user_expr = "COALESCE(user_id, :legacy_user_id)" if "user_id" in cols else ":legacy_user_id"
     conn.execute(text("ALTER TABLE daily_equity RENAME TO daily_equity_v3_old"))
     conn.execute(
         text(
@@ -1082,14 +1082,14 @@ def _sqlite_rebuild_daily_equity_user_scope(conn, *, owner_user_id: int) -> None
             FROM daily_equity_v3_old
             """
         ),
-        {"owner_user_id": owner_user_id},
+        {"legacy_user_id": legacy_user_id},
     )
     conn.execute(text("DROP TABLE daily_equity_v3_old"))
 
 
-def _sqlite_rebuild_paper_wallet_user_scope(conn, *, owner_user_id: int) -> None:
+def _sqlite_rebuild_paper_wallet_user_scope(conn, *, legacy_user_id: int) -> None:
     cols = {col["name"] for col in inspect(conn).get_columns("paper_wallet")}
-    user_expr = "COALESCE(user_id, :owner_user_id)" if "user_id" in cols else ":owner_user_id"
+    user_expr = "COALESCE(user_id, :legacy_user_id)" if "user_id" in cols else ":legacy_user_id"
     conn.execute(text("ALTER TABLE paper_wallet RENAME TO paper_wallet_v3_old"))
     conn.execute(
         text(
@@ -1118,12 +1118,12 @@ def _sqlite_rebuild_paper_wallet_user_scope(conn, *, owner_user_id: int) -> None
             FROM paper_wallet_v3_old
             """
         ),
-        {"owner_user_id": owner_user_id},
+        {"legacy_user_id": legacy_user_id},
     )
     conn.execute(text("DROP TABLE paper_wallet_v3_old"))
 
 
-def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
+def _seed_user_bot_scope(conn, *, legacy_user_id: int) -> None:
     inspector = inspect(conn)
     table_names = set(inspector.get_table_names())
     if "user_bot_config" not in table_names:
@@ -1166,7 +1166,7 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                     updated_at
                 )
                 SELECT
-                    :owner_user_id,
+                    :legacy_user_id,
                     b.is_enabled,
                     b.timeframe,
                     b.markets_json,
@@ -1201,11 +1201,11 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                   AND NOT EXISTS (
                       SELECT 1
                       FROM user_bot_config ubc
-                      WHERE ubc.user_id = :owner_user_id
+                      WHERE ubc.user_id = :legacy_user_id
                   )
                 """
             ),
-            {"owner_user_id": owner_user_id},
+            {"legacy_user_id": legacy_user_id},
         )
 
     if "user_bot_runtime" in table_names:
@@ -1224,9 +1224,9 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                     updated_at
                 )
                 SELECT
-                    :owner_user_id,
+                    :legacy_user_id,
                     COALESCE(
-                        (SELECT ubc.is_enabled FROM user_bot_config ubc WHERE ubc.user_id = :owner_user_id),
+                        (SELECT ubc.is_enabled FROM user_bot_config ubc WHERE ubc.user_id = :legacy_user_id),
                         :default_is_enabled
                     ),
                     'IDLE',
@@ -1239,11 +1239,11 @@ def _seed_user_bot_scope(conn, *, owner_user_id: int) -> None:
                 WHERE NOT EXISTS (
                     SELECT 1
                     FROM user_bot_runtime ubr
-                    WHERE ubr.user_id = :owner_user_id
+                    WHERE ubr.user_id = :legacy_user_id
                 )
                 """
             ),
-            {"owner_user_id": owner_user_id, "default_is_enabled": True},
+            {"legacy_user_id": legacy_user_id, "default_is_enabled": True},
         )
 
 
@@ -1384,11 +1384,11 @@ def run_lightweight_migrations() -> None:
         if conn.dialect.name == "postgresql":
             _ensure_users_token_version(conn)
             _ensure_users_admin_role(conn)
-            owner_user_id = _resolve_legacy_owner_user_id(conn)
-            _postgres_ensure_positions_user_scope(conn, owner_user_id=owner_user_id)
-            _postgres_ensure_daily_equity_user_scope(conn, owner_user_id=owner_user_id)
+            legacy_user_id = _resolve_legacy_user_id(conn)
+            _postgres_ensure_positions_user_scope(conn, legacy_user_id=legacy_user_id)
+            _postgres_ensure_daily_equity_user_scope(conn, legacy_user_id=legacy_user_id)
             _ensure_s7_policy_columns(conn)
-            _seed_user_bot_scope(conn, owner_user_id=owner_user_id)
+            _seed_user_bot_scope(conn, legacy_user_id=legacy_user_id)
             return
 
         if not _is_sqlite_bind(conn):
@@ -1396,7 +1396,7 @@ def run_lightweight_migrations() -> None:
 
         inspector = inspect(conn)
         table_names = set(inspector.get_table_names())
-        owner_user_id = _resolve_legacy_owner_user_id(conn)
+        legacy_user_id = _resolve_legacy_user_id(conn)
         _ensure_users_token_version(conn)
         _ensure_users_admin_role(conn)
 
@@ -1416,7 +1416,7 @@ def run_lightweight_migrations() -> None:
                 conn.execute(text("ALTER TABLE orders ADD COLUMN intent VARCHAR(16)"))
             if "user_id" not in order_cols:
                 conn.execute(text("ALTER TABLE orders ADD COLUMN user_id INTEGER DEFAULT 1"))
-            conn.execute(text("UPDATE orders SET user_id = COALESCE(user_id, :owner_user_id)"), {"owner_user_id": owner_user_id})
+            conn.execute(text("UPDATE orders SET user_id = COALESCE(user_id, :legacy_user_id)"), {"legacy_user_id": legacy_user_id})
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_user_id ON orders(user_id)"))
             conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_user_client_order_id ON orders(user_id, client_order_id)"))
 
@@ -1628,9 +1628,9 @@ def run_lightweight_migrations() -> None:
                 conn.execute(text("ALTER TABLE daily_equity ADD COLUMN start_realized_pnl NUMERIC(28,8) DEFAULT 0"))
                 conn.execute(text("UPDATE daily_equity SET start_realized_pnl = COALESCE(realized_pnl, 0) WHERE start_realized_pnl IS NULL"))
             if not _pk_matches(conn, "daily_equity", ("user_id", "date_utc")):
-                _sqlite_rebuild_daily_equity_user_scope(conn, owner_user_id=owner_user_id)
+                _sqlite_rebuild_daily_equity_user_scope(conn, legacy_user_id=legacy_user_id)
             else:
-                _ensure_user_scope_column(conn, table_name="daily_equity", owner_user_id=owner_user_id)
+                _ensure_user_scope_column(conn, table_name="daily_equity", legacy_user_id=legacy_user_id)
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_equity_user_id ON daily_equity(user_id)"))
 
         if "trade_metrics" not in table_names:
@@ -1658,16 +1658,16 @@ def run_lightweight_migrations() -> None:
 
         if "positions" in table_names:
             if not _pk_matches(conn, "positions", ("user_id", "market")):
-                _sqlite_rebuild_positions_user_scope(conn, owner_user_id=owner_user_id)
+                _sqlite_rebuild_positions_user_scope(conn, legacy_user_id=legacy_user_id)
             else:
-                _ensure_user_scope_column(conn, table_name="positions", owner_user_id=owner_user_id)
+                _ensure_user_scope_column(conn, table_name="positions", legacy_user_id=legacy_user_id)
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_positions_user_id ON positions(user_id)"))
 
         if "paper_wallet" in table_names:
             if not _pk_matches(conn, "paper_wallet", ("user_id",)):
-                _sqlite_rebuild_paper_wallet_user_scope(conn, owner_user_id=owner_user_id)
+                _sqlite_rebuild_paper_wallet_user_scope(conn, legacy_user_id=legacy_user_id)
             else:
-                _ensure_user_scope_column(conn, table_name="paper_wallet", owner_user_id=owner_user_id)
+                _ensure_user_scope_column(conn, table_name="paper_wallet", legacy_user_id=legacy_user_id)
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_paper_wallet_user_id ON paper_wallet(user_id)"))
 
         refreshed_table_names = set(inspect(conn).get_table_names())
@@ -1676,7 +1676,7 @@ def run_lightweight_migrations() -> None:
         if "user_bot_runtime" in refreshed_table_names:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_user_bot_runtime_user_id ON user_bot_runtime(user_id)"))
 
-        _seed_user_bot_scope(conn, owner_user_id=owner_user_id)
+        _seed_user_bot_scope(conn, legacy_user_id=legacy_user_id)
 
         conn.execute(text("DROP INDEX IF EXISTS ix_trade_metrics_order_id"))
 

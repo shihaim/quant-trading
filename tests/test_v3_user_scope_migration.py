@@ -34,7 +34,7 @@ def _session_factory(path: Path):
 
 
 def test_build_v3_user_scope_sql_plan_contains_stage_blocks():
-    plan = build_v3_user_scope_sql_plan(owner_user_id=7)
+    plan = build_v3_user_scope_sql_plan(legacy_user_id=7)
     expand_sql = "\n".join(plan.expand_sql)
     rollback_sql = "\n".join(plan.rollback_sql)
 

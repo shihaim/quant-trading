@@ -18,14 +18,14 @@ class V3UserScopeSqlPlan:
     validation_sql: tuple[str, ...]
 
 
-def build_v3_user_scope_sql_plan(owner_user_id: int = 1) -> V3UserScopeSqlPlan:
+def build_v3_user_scope_sql_plan(legacy_user_id: int = 1) -> V3UserScopeSqlPlan:
     """
     Build SQL plan text for staged migration.
 
     The plan intentionally separates schema expansion from cleanup so runtime
     code can move to user-scoped reads/writes in controlled phases.
     """
-    owner = max(1, int(owner_user_id))
+    legacy = max(1, int(legacy_user_id))
     expand_sql = (
         "-- expand: additive schema updates",
         "ALTER TABLE orders ADD COLUMN user_id INTEGER DEFAULT 1;",
@@ -127,10 +127,10 @@ def build_v3_user_scope_sql_plan(owner_user_id: int = 1) -> V3UserScopeSqlPlan:
         "CREATE INDEX IF NOT EXISTS ix_user_risk_guard_manual_halt ON user_risk_guard(manual_halt);",
         "CREATE INDEX IF NOT EXISTS ix_user_risk_guard_emergency_kill_switch ON user_risk_guard(emergency_kill_switch);",
         "-- expand backfill",
-        f"UPDATE orders SET user_id = COALESCE(user_id, {owner});",
-        f"UPDATE positions SET user_id = COALESCE(user_id, {owner});",
-        f"UPDATE daily_equity SET user_id = COALESCE(user_id, {owner});",
-        f"UPDATE paper_wallet SET user_id = COALESCE(user_id, {owner});",
+        f"UPDATE orders SET user_id = COALESCE(user_id, {legacy});",
+        f"UPDATE positions SET user_id = COALESCE(user_id, {legacy});",
+        f"UPDATE daily_equity SET user_id = COALESCE(user_id, {legacy});",
+        f"UPDATE paper_wallet SET user_id = COALESCE(user_id, {legacy});",
         "INSERT INTO user_bot_config ("
         " user_id, is_enabled, timeframe, markets_json, target_exposure_pct, daily_loss_basis,"
         " min_rebalance_threshold_pct, min_order_krw_buffer, fill_timeout_sec_entry, fill_timeout_sec_exit,"
@@ -142,7 +142,7 @@ def build_v3_user_scope_sql_plan(owner_user_id: int = 1) -> V3UserScopeSqlPlan:
         " max_total_exposure_pct, max_per_market_exposure_pct, created_at, updated_at"
         ")"
         " SELECT"
-        f" {owner}, is_enabled, timeframe, markets_json, target_exposure_pct, daily_loss_basis,"
+        f" {legacy}, is_enabled, timeframe, markets_json, target_exposure_pct, daily_loss_basis,"
         " min_rebalance_threshold_pct, min_order_krw_buffer, fill_timeout_sec_entry, fill_timeout_sec_exit,"
         " fill_timeout_sec_rebalance, max_reprice_attempts_entry, max_reprice_attempts_exit,"
         " max_reprice_attempts_rebalance, reprice_step_bps, slippage_budget_entry_pct, slippage_budget_exit_pct,"
@@ -151,7 +151,7 @@ def build_v3_user_scope_sql_plan(owner_user_id: int = 1) -> V3UserScopeSqlPlan:
         " max_new_orders_per_day, max_orders_per_week, min_edge_pct,"
         " max_total_exposure_pct, max_per_market_exposure_pct, NOW(), NOW()"
         " FROM bot_config WHERE id = 1"
-        f" AND NOT EXISTS (SELECT 1 FROM user_bot_config WHERE user_id = {owner});",
+        f" AND NOT EXISTS (SELECT 1 FROM user_bot_config WHERE user_id = {legacy});",
     )
     dual_path_sql = (
         "-- dual-path: write both legacy and user-scoped paths",
@@ -164,7 +164,7 @@ def build_v3_user_scope_sql_plan(owner_user_id: int = 1) -> V3UserScopeSqlPlan:
         "-- cleanup: remove legacy global assumptions after dual-path stabilizes",
         "Enforce NOT NULL and foreign key constraints for user_id on target tables.",
         "Add unique constraints scoped by user_id where required by business keys.",
-        "Delete owner-bridge read paths and remove reliance on bot_config(id=1).",
+        "Delete legacy bridge read paths and remove reliance on bot_config(id=1).",
     )
     rollback_sql = (
         "-- rollback: keep rollback scripts ready before production execution",
