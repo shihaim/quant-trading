@@ -30,6 +30,14 @@
   - 완료: P1 rehearsal helper는 항상 명시적인 `--user-id`를 요구한다.
   - 완료: `--user-id`가 없으면 모든 trade mode에서 `user_id_required` hard error를 발생시킨다.
 
+### Legacy backfill 사용자 지정
+
+- `legacy_user_id`
+  - V3 이전 단일 bot 데이터에 사용자 식별자가 없을 때, 기존 rows를 귀속시킬 대상 사용자 ID다.
+  - 여러 사용자의 신규/현재 런타임 데이터를 하나의 사용자로 합치는 값이 아니다.
+  - 멀티유저 운영 데이터는 각 row의 실제 `user_id`로 분리되어야 하며, `legacy_user_id`는 과거 단일봇 데이터 이관 시점에만 사용한다.
+  - 과거 데이터를 여러 사용자에게 나눠야 하면 자격증명 fingerprint, 운영자 매핑 파일 등 별도 매핑 기준을 먼저 정의해야 한다.
+
 ### 관리자 role 대체 경로
 
 - `OPS_API_ADMIN_EMAILS`
@@ -72,3 +80,4 @@
 - 백엔드 `/api/me/*` 응답과 `OpsService`는 legacy owner scope 필드를 노출하지 않는다.
 - 사용자별 runtime config 로딩은 global `bot_config(id=1)` fallback 없이 `user_bot_config` row를 기준으로 동작한다.
 - runtime 코드에는 `resolve_owner_user_id()` 기반 owner 대체 해석이 남아 있지 않다.
+- `legacy_user_id`는 마이그레이션 backfill용 단일봇 데이터 귀속 대상이며, 멀티유저 런타임의 기본 사용자 ID가 아니다.

@@ -24,6 +24,8 @@ def build_v3_user_scope_sql_plan(legacy_user_id: int = 1) -> V3UserScopeSqlPlan:
 
     The plan intentionally separates schema expansion from cleanup so runtime
     code can move to user-scoped reads/writes in controlled phases.
+    legacy_user_id only attributes pre-V3 single-bot rows that had no user_id;
+    normal multi-user runtime paths must use each row's explicit user_id.
     """
     legacy = max(1, int(legacy_user_id))
     expand_sql = (
