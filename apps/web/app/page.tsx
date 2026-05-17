@@ -34,7 +34,7 @@ export default function Page() {
         <p className="text-xs uppercase tracking-[0.08em] text-muted">Quant Trading</p>
         <h1 className="mt-1 font-display text-3xl">V3 Ops Entry</h1>
         <p className="mt-3 text-sm text-muted">
-          Public entry page. Sign in to access user-scoped dashboard and `/api/me/*` views. Admin-only ops summary is isolated at
+          Sign in to open your dashboard and account-specific trading views. Admin-only operations remain isolated at
           <code> /admin/ops</code>.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">

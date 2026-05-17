@@ -70,7 +70,7 @@ function LoginPageInner() {
       <section className="panel p-5">
         <p className="text-xs uppercase tracking-[0.08em] text-muted">Authentication</p>
         <h1 className="mt-1 font-display text-2xl">Login</h1>
-        <p className="mt-2 text-sm text-muted">Sign in to access user-scoped `/api/me/*` pages.</p>
+        <p className="mt-2 text-sm text-muted">Sign in to open your account-specific dashboard and trading controls.</p>
         {reasonMessage ? (
           <p className="mt-3 rounded-md border border-black/10 bg-white p-2 text-sm text-muted">{reasonMessage}</p>
         ) : null}
