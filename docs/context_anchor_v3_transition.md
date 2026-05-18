@@ -154,7 +154,7 @@ Already landed on current branch:
 Remaining transition/compatibility zones:
 
 - No runtime owner-resolution fallback is currently expected. Keep new runtime paths explicitly user-scoped.
-- `legacy_user_id`는 V3 이전 `user_id`가 없던 단일봇 rows를 귀속시키는 마이그레이션/backfill 도구에서만 사용할 수 있다. 정상 멀티유저 런타임 기본값이 아니며, 현재 rows는 명시적인 자체 `user_id`를 가져야 한다.
+- `legacy_user_id` may appear in migration/backfill tooling to attribute pre-V3 single-bot rows that had no `user_id`. It is not a normal multi-user runtime default, and current rows must carry their own explicit `user_id`.
 
 Do not treat the following as durable invariants during V3:
 

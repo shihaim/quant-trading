@@ -19,8 +19,8 @@
 ## Context Anchor Hook
 
 - For tasks that touch trading behavior or invariants, choose the anchor first:
-- If the task is about V3 transition, multi-user scoping, owner-bridge removal, or runtime ownership migration, read `docs/context_anchor_v3_transition.md` first.
-- Otherwise, read `docs/context_anchor.md` first.
+- Read `docs/context_anchor.md` first for current trading/runtime/Ops invariants.
+- If the task needs historical V3 transition detail, compatibility removal context, or old backlog guardrails, also read `docs/context_anchor_v3_transition.md`.
 - Trigger this hook when the task involves any of: scheduler flow, order execution, reconcile, fills, PnL, risk limits, runtime config, or Ops API behavior.
 - Read the selected anchor with partial reads first (for example `-TotalCount`, `-First`, `-Tail`), then open only the relevant code files.
 - Before patching, state which invariant(s) from the selected anchor must remain true.
