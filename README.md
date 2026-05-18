@@ -115,16 +115,12 @@ docker compose up -d --force-recreate caddy
 - `TRADE_MODE=TEST`: calls `/v1/orders/test` only (no live order)
 - `TRADE_MODE=SHADOW`: records validated order intent only (no exchange submit)
 
-In `REAL/TEST/SHADOW` mode, both keys are required:
-
-- `UPBIT_ACCESS_KEY`
-- `UPBIT_SECRET_KEY`
+For V3 multi-user operation, do not keep global `UPBIT_ACCESS_KEY`/`UPBIT_SECRET_KEY` values in `.env.runtime`.
+Users store Upbit keys through `/api/me/credentials/upbit`, and runtime loads per-user credentials from `user_exchange_credentials`.
 
 ## Environment Variables
 
 - `TRADE_MODE` (`PAPER`, `REAL`, `TEST`, `SHADOW`)
-- `UPBIT_ACCESS_KEY`
-- `UPBIT_SECRET_KEY`
 - `UPBIT_BASE_URL` (default: `https://api.upbit.com`)
 - `DATABASE_URL` (local fallback: `sqlite:///./trading.db`, docker compose default: `postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading`)
 - `POLL_INTERVAL_SECONDS` (default: `1`)
@@ -143,6 +139,11 @@ In `REAL/TEST/SHADOW` mode, both keys are required:
 - `OPS_API_AUTH_SECRET` (default: `dev-ops-auth-secret-change-me`)
 - `OPS_API_AUTH_TOKEN_TTL_SECONDS` (default: `43200`, 12h)
 - `OPS_API_CREDENTIALS_ENCRYPTION_KEY` (default: `dev-ops-credentials-encryption-key-change-me`)
+- `OPS_API_CREDENTIALS_ACTIVE_KEY_VERSION` (default: `v1`)
+- `OPS_API_CREDENTIALS_KEYRING_JSON` (JSON for credential key rotation)
+- `OPS_API_BUDGET_WINDOW_SECONDS` (default: `60`)
+- `OPS_API_BUDGET_ME_LIMIT` (default: `120`)
+- `OPS_API_BUDGET_ADMIN_LIMIT` (default: `300`)
 - `LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, default: `INFO`)
 - `LOG_DIR` (default: `logs`)
 - `APP_INFO_LOG_FILE` (default: `application-info.log`, scheduler `INFO`/`WARNING`)

@@ -117,14 +117,12 @@ docker compose up -d --force-recreate caddy
 
 `REAL/TEST/SHADOW` 모드에서는 아래 키 2개가 모두 필요합니다.
 
-- `UPBIT_ACCESS_KEY`
-- `UPBIT_SECRET_KEY`
+V3 멀티유저 운영에서는 전역 `UPBIT_ACCESS_KEY`/`UPBIT_SECRET_KEY`를 `.env.runtime`에 두지 않습니다.
+사용자별 Upbit 키는 로그인 후 `/api/me/credentials/upbit` 경로로 저장하며, 런타임은 DB의 `user_exchange_credentials`에서 사용자별 credential을 읽습니다.
 
 ## 환경 변수
 
 - `TRADE_MODE` (`PAPER`, `REAL`, `TEST`, `SHADOW`)
-- `UPBIT_ACCESS_KEY`
-- `UPBIT_SECRET_KEY`
 - `UPBIT_BASE_URL` (기본값: `https://api.upbit.com`)
 - `DATABASE_URL` (로컬 기본값: `sqlite:///./trading.db`, docker compose 기본값: `postgresql+psycopg://trader:${POSTGRES_PASSWORD}@postgres:5432/trading`)
 - `POLL_INTERVAL_SECONDS` (기본값: `1`)
@@ -143,6 +141,11 @@ docker compose up -d --force-recreate caddy
 - `OPS_API_AUTH_SECRET` (기본값: `dev-ops-auth-secret-change-me`)
 - `OPS_API_AUTH_TOKEN_TTL_SECONDS` (기본값: `43200`, 12시간)
 - `OPS_API_CREDENTIALS_ENCRYPTION_KEY` (기본값: `dev-ops-credentials-encryption-key-change-me`)
+- `OPS_API_CREDENTIALS_ACTIVE_KEY_VERSION` (기본값: `v1`)
+- `OPS_API_CREDENTIALS_KEYRING_JSON` (credential key rotation용 JSON)
+- `OPS_API_BUDGET_WINDOW_SECONDS` (기본값: `60`)
+- `OPS_API_BUDGET_ME_LIMIT` (기본값: `120`)
+- `OPS_API_BUDGET_ADMIN_LIMIT` (기본값: `300`)
 - `LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, 기본값: `INFO`)
 - `LOG_DIR` (기본값: `logs`)
 - `APP_INFO_LOG_FILE` (기본값: `application-info.log`, 스케줄러 `INFO`/`WARNING`)
