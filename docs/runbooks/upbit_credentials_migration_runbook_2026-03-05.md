@@ -147,5 +147,5 @@ pwsh .\scripts\backfill_upbit_credentials_template.ps1 `
 ## 보안 주의사항
 
 - Secret 값은 문서/로그/채팅에 평문으로 남기지 않는다.
-- 키 로테이션은 반드시 런북(`docs/credential_key_rotation_runbook_2026-03-08.md`) 절차대로 진행한다.
+- 키 로테이션은 반드시 런북(`docs/runbooks/credential_key_rotation_runbook_2026-03-08.md`) 절차대로 진행한다.
 - `OPS_API_AUTH_SECRET` 변경 시 기존 토큰 무효화가 발생하므로 재로그인 공지 필요.

@@ -238,7 +238,7 @@ python -m trader.app.p1_rehearsal --scenario order-cancel --market KRW-BTC --dis
 
 ## P2 정책
 
-- PnL/리스크 중단 기준 정책은 `docs/p2_design.md`에 문서화되어 있습니다.
+- PnL/리스크 중단 기준 정책은 `docs/archive/p2_design.md`에 보관되어 있습니다.
 
 ## P3 실행 정책
 

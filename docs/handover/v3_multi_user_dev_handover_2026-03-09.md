@@ -47,7 +47,7 @@
   - write path에 `user_id` 전파
   - 사용자 스코프 idempotency 강화
 - 관련 문서:
-  - `docs/postgres_v3_schema_sync_runbook_2026-03-08.md`
+  - `docs/runbooks/postgres_v3_schema_sync_runbook_2026-03-08.md`
 
 ### 3.2 V3.3 ~ V3.5 (스케줄러/런타임)
 
@@ -71,7 +71,7 @@
   - admin 경계 강화
   - 사용자별 API budget 및 리스크 가드 운영 가능화
 - 관련 문서:
-  - `docs/credential_key_rotation_runbook_2026-03-08.md`
+  - `docs/runbooks/credential_key_rotation_runbook_2026-03-08.md`
 
 ### 3.5 V3.8 (테스트/릴리즈 게이트)
 
@@ -115,7 +115,7 @@
 ## 7) 신규 참여 개발자를 위한 온보딩 순서
 
 1. `docs/context_anchor_v3_transition.md` 우선 숙지
-2. `docs/postgres_v3_schema_sync_runbook_2026-03-08.md`로 마이그레이션/검증 절차 이해
+2. `docs/runbooks/postgres_v3_schema_sync_runbook_2026-03-08.md`로 마이그레이션/검증 절차 이해
 3. `tests/test_me_read_service.py`, `tests/test_ops_http_auth.py`부터 회귀 포인트 파악
 4. `/api/me/*`와 `/api/admin/*` 권한 경계 테스트를 먼저 실행
 
@@ -128,7 +128,7 @@
 ## 9) 관련 문서
 
 - `docs/context_anchor_v3_transition.md`
-- `docs/postgres_v3_schema_sync_runbook_2026-03-08.md`
-- `docs/credential_key_rotation_runbook_2026-03-08.md`
+- `docs/runbooks/postgres_v3_schema_sync_runbook_2026-03-08.md`
+- `docs/runbooks/credential_key_rotation_runbook_2026-03-08.md`
 - `docs/ops_runbook.md`
-- `docs/v3_multi_user_product_handover_2026-03-09.md`
+- `docs/handover/v3_multi_user_product_handover_2026-03-09.md`

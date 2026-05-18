@@ -236,7 +236,7 @@ Notes:
 
 ## P2 Policy
 
-- PnL/risk-halt basis policy is documented in `docs/p2_design.md`.
+- PnL/risk-halt basis policy is archived in `docs/archive/p2_design.md`.
 
 ## P3 Execution Policy
 

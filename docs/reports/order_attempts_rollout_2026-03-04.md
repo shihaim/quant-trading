@@ -109,5 +109,5 @@
 ## 8) 관련 문서
 
 - `docs/ops_runbook.md`
-- `docs/order_attempts_ops_checks_2026-03-04.md`
-- `docs/order_state_consistency_dev_2026-03-04.md`
+- `docs/runbooks/order_attempts_ops_checks_2026-03-04.md`
+- `docs/reports/order_state_consistency_dev_2026-03-04.md`

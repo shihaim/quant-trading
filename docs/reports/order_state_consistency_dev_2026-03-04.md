@@ -198,7 +198,7 @@ python -m pytest -q
 
 운영 점검 쿼리는 아래 문서에 정리했습니다.
 
-- `docs/order_attempts_ops_checks_2026-03-04.md`
+- `docs/runbooks/order_attempts_ops_checks_2026-03-04.md`
 
 ### 6.2 앞으로 `orders`만 직접 갱신하면 요약 상태가 다시 어긋날 수 있음
 

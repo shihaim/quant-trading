@@ -1,4 +1,4 @@
-﻿# Quant Trading MVP Context Anchor (V3 Transition Safe)
+# Quant Trading MVP Context Anchor (V3 Transition Safe)
 
 Last verified: 2026-03-22
 Verified against: `trader/config/settings.py`, `trader/config/config_repo.py`, `trader/trading/scheduler.py`, `trader/trading/risk.py`, `trader/trading/execution.py`, `trader/trading/reconcile.py`, `trader/data/models.py`, `trader/api/ops_http.py`, `trader/auth/guard.py`, `trader/auth/tokens.py`, `trader/me/read_service.py`, `trader/ops/service.py`, `trader/audit/service.py`, `trader/release_gate.py`, `scripts/run_release_gate.py`, `scripts/audit_upbit_credential_coverage.py`, `apps/web/components/admin-users-runtime-table.tsx`, `apps/web/components/admin-audit-log-viewer.tsx`, `apps/web/components/ops-dashboard.tsx`, Notion Task index (`https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`), Notion V3 batch page (`https://www.notion.so/31c899b6d7dc81f5a92bfa159119e6e5`)
@@ -264,7 +264,7 @@ Use these as current contracts for branches with B1~B3 applied:
   - retired rotate alias: `POST /api/ops/credentials/rotate` -> `410 legacy_endpoint_retired` (use `/api/admin/credentials/rotate`)
 - S6 order-attempt consistency:
   - normalized latest/next attempt calculations in shared helpers
-  - runbook: `docs/order_attempts_unique_constraints_runbook_2026-03-22.md`
+  - runbook: `docs/runbooks/order_attempts_unique_constraints_runbook_2026-03-22.md`
 - S7 risk policy expansion:
   - new config keys: `max_weekly_loss_pct`, `max_monthly_loss_pct`, `cooldown_hours_on_halt`, `max_new_orders_per_day`, `max_orders_per_week`, `min_edge_pct`
   - new halt reasons: `weekly_loss_limit`, `monthly_loss_limit`, `new_orders_daily_limit`, `orders_weekly_limit`, `cooldown_active`
