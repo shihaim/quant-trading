@@ -23,6 +23,13 @@ python -m trader.app.main
 Local CLI/dev runs still fall back to `sqlite:///./trading.db` unless `DATABASE_URL` is set.
 `docker-compose.yml` uses the bundled PostgreSQL service by default.
 
+## Documentation
+
+- Start from `docs/README.md` for the current documentation map.
+- Use `docs/context_anchor.md` for current engineering invariants before changing trading behavior.
+- Use `docs/ops_runbook.md` for deployment, DB checks, admin roles, and emergency procedures.
+- Notion `Task` remains the canonical source for Story/Task/Sub-task planning; local docs are operational references, handovers, runbooks, reports, and archives.
+
 ## Ops API (Dashboard MVP)
 
 Run a lightweight local API server for operations dashboard integration:

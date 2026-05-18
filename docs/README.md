@@ -2,6 +2,15 @@
 
 This directory contains operational references, architecture anchors, handovers, runbooks, and historical reports.
 
+## Planning Source of Truth
+
+Notion `Task` is the canonical source for Story/Task/Sub-task planning and execution state.
+
+- Active Notion index: `https://www.notion.so/31b899b6d7dc80d4af4be0041af7937d`
+- Local `/docs` should not be treated as the active backlog.
+- Keep planning decisions in Notion; keep durable operating references, handovers, runbooks, reports, and archives here.
+- Archived local reports explain history and rationale, but current implementation work should start from Notion plus the relevant context anchor.
+
 ## Start Here
 
 - `context_anchor.md` - canonical current engineering context and invariants.

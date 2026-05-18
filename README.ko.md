@@ -23,6 +23,13 @@ python -m trader.app.main
 로컬 CLI/개발 실행은 `DATABASE_URL`이 없으면 기본값 `sqlite:///./trading.db`를 사용합니다.
 `docker-compose.yml`은 기본으로 번들 PostgreSQL 서비스를 사용합니다.
 
+## 문서
+
+- 현재 문서 지도는 `docs/README.md`에서 시작합니다.
+- 매매 동작이나 불변식을 바꾸기 전에는 `docs/context_anchor.md`를 기준으로 확인합니다.
+- 배포, DB 점검, 관리자 역할, 긴급 절차는 `docs/ops_runbook.md`를 기준으로 봅니다.
+- Story/Task/Sub-task 계획의 기준은 Notion `Task`이며, 로컬 `/docs`는 운영 참고 문서, 인수인계, 런북, 보고서, 아카이브 용도입니다.
+
 ## Ops API (대시보드 MVP)
 
 운영 대시보드 연동용 경량 로컬 API 서버를 실행합니다.
