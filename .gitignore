@@ -28,7 +28,7 @@ trading.db
 *.sqlite
 *.sqlite3
 *.log
-logs/
+/logs/
 /backups/
 /scripts/__pycache__/
 infra/caddy/root.crt
@@ -83,6 +83,7 @@ Thumbs.db
 # Node / Next.js
 node_modules/
 .next/
+apps/web/logs/
 *.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
