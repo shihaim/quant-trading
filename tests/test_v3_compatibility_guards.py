@@ -30,7 +30,7 @@ def test_owner_resolution_usage_is_limited_to_known_compatibility_paths():
 
 
 def test_f2_cleanup_plan_documents_remaining_compatibility_zones():
-    doc = _repo_text("docs/f2_v3_compatibility_fallback_cleanup_plan_2026-05-16.md")
+    doc = _repo_text("docs/reports/f2_v3_compatibility_fallback_cleanup_plan_2026-05-16.md")
 
     assert "TradingScheduler(user_id=None)" in doc
     assert "hard error" in doc
