@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -88,6 +89,26 @@ def test_list_active_user_ids_requires_runtime_enabled_and_credentials(monkeypat
 
     scheduler = MultiUserTradingScheduler(session_factory=Session)
     assert scheduler._list_active_user_ids() == [1]
+
+
+def test_ensure_state_logs_user_schedule(monkeypatch, caplog):
+    monkeypatch.setattr(scheduler_module.settings, "trade_mode", "PAPER")
+    Session = _session_factory()
+    with Session() as session:
+        session.add(User(id=1, email="u1@example.com", password_hash="hash"))
+        session.commit()
+
+    scheduler = MultiUserTradingScheduler(session_factory=Session)
+    now = datetime(2026, 3, 8, 0, 0, tzinfo=timezone.utc)
+
+    with caplog.at_level(logging.INFO, logger="trader.trading.scheduler"):
+        state = scheduler._ensure_state(1, now)
+        scheduler._ensure_state(1, now + timedelta(seconds=20))
+
+    messages = "\n".join(caplog.messages)
+    assert "multi_user_scheduler_user_scheduled user_id=1" in messages
+    assert "multi_user_scheduler_user_waiting user_id=1" in messages
+    assert state.next_run_at.isoformat() in messages
 
 
 def test_run_user_tick_isolated_failure_updates_runtime(monkeypatch):

@@ -809,6 +809,14 @@ class MultiUserTradingScheduler:
                 next_status_notify_at=now + timedelta(seconds=max(300, cfg.status_notify_interval_seconds)),
             )
             self._states[user_id] = state
+            seconds_until_next_run = max(0, int((state.next_run_at - now).total_seconds()))
+            logger.info(
+                "multi_user_scheduler_user_scheduled user_id=%s timeframe=%s next_run_at=%s seconds_until_next_run=%s",
+                user_id,
+                cfg.timeframe,
+                state.next_run_at.isoformat(),
+                seconds_until_next_run,
+            )
             return state
 
         if (now - state.last_config_reload_at).total_seconds() < settings.config_reload_seconds:
@@ -819,9 +827,24 @@ class MultiUserTradingScheduler:
         if cfg.timeframe != state.runtime_config.timeframe:
             next_at = next_run_time(now, cfg.timeframe)
             self.notifier.send(f"user={user_id} timeframe changed: {state.runtime_config.timeframe} -> {cfg.timeframe}")
+            logger.info(
+                "multi_user_scheduler_timeframe_changed user_id=%s old=%s new=%s next_run_at=%s",
+                user_id,
+                state.runtime_config.timeframe,
+                cfg.timeframe,
+                next_at.isoformat(),
+            )
         state.runtime_config = cfg
         state.next_run_at = next_at
         state.last_config_reload_at = now
+        seconds_until_next_run = max(0, int((state.next_run_at - now).total_seconds()))
+        logger.info(
+            "multi_user_scheduler_user_waiting user_id=%s timeframe=%s next_run_at=%s seconds_until_next_run=%s",
+            user_id,
+            cfg.timeframe,
+            state.next_run_at.isoformat(),
+            seconds_until_next_run,
+        )
         return state
 
     def _notify_runtime_status(self, user_id: int) -> None:
