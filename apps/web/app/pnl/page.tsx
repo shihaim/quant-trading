@@ -4,15 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 
 import { opsApi } from "../../lib/api";
 import { asKrw, asPct, asTime } from "../../lib/format";
-import type { MePnlDailyResponse, PnlTimezone } from "../../lib/types";
+import { useLocale } from "../../lib/locale";
+import type { MePnlDailyResponse } from "../../lib/types";
 import { useAuthGuard } from "../../lib/use-auth-guard";
 
 const DAYS_OPTIONS = [7, 30, 60, 90] as const;
 
 export default function PnlPage() {
   const { accessToken, isAuthReady, handleAuthError } = useAuthGuard();
+  const { intlLocale, text } = useLocale();
   const [days, setDays] = useState<number>(30);
-  const [timezone, setTimezone] = useState<PnlTimezone>("UTC");
   const [payload, setPayload] = useState<MePnlDailyResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -28,7 +29,7 @@ export default function PnlPage() {
       const result = await opsApi.getMyPnlDaily({
         accessToken,
         days,
-        tz: timezone
+        tz: "KST"
       });
       setPayload(result);
       setError("");
@@ -37,12 +38,12 @@ export default function PnlPage() {
       if (handleAuthError(requestError)) {
         return;
       }
-      setError(requestError instanceof Error ? requestError.message : "failed to load pnl");
+      setError(text.pnlLoadError);
       setPayload(null);
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, days, handleAuthError, isAuthReady, timezone]);
+  }, [accessToken, days, handleAuthError, isAuthReady, text.pnlLoadError]);
 
   useEffect(() => {
     if (!isAuthReady || !accessToken) return;
@@ -53,30 +54,27 @@ export default function PnlPage() {
 
   if (!isAuthReady) {
     return (
-      <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
+      <main className="page">
         <section className="panel p-5">
-          <p className="text-sm text-muted">Checking authentication...</p>
+          <p className="text-sm text-muted">{text.checkingAuth}</p>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
-      <header className="panel p-4">
-        <p className="text-xs uppercase tracking-[0.08em] text-muted">P1-FE4</p>
-        <h1 className="mt-1 font-display text-2xl">PnL Daily</h1>
-        <p className="mt-2 text-sm text-muted">
-          User-scoped daily equity history from <code>GET /api/me/pnl/daily</code>.
-        </p>
+    <main className="page">
+      <header className="page-header">
+        <h1 className="mt-1 font-display text-3xl font-black tracking-tight">{text.pnl}</h1>
+        <p className="mt-2 text-sm font-medium text-muted">{text.sourcePnl}</p>
       </header>
 
-      <section className="panel p-4">
+      <section className="page-toolbar">
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-sm text-muted">
-            Days
+            {text.days}
             <select
-              className="ml-2 rounded-md border border-black/10 bg-white px-2 py-1 text-sm text-ink"
+              className="ml-2 form-control inline-block w-auto py-1.5"
               value={days}
               onChange={(event) => setDays(Number(event.target.value))}
             >
@@ -87,65 +85,49 @@ export default function PnlPage() {
               ))}
             </select>
           </label>
-          <label className="text-sm text-muted">
-            Timezone
-            <select
-              className="ml-2 rounded-md border border-black/10 bg-white px-2 py-1 text-sm text-ink"
-              value={timezone}
-              onChange={(event) => setTimezone(event.target.value as PnlTimezone)}
-            >
-              <option value="UTC">UTC</option>
-              <option value="KST">KST</option>
-            </select>
-          </label>
           <button
-            className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
+            className="btn btn-secondary min-h-9"
             onClick={() => void loadPnl()}
             disabled={isLoading}
           >
-            Reload
+            {text.refresh}
           </button>
-          <p className="text-xs text-muted">Rows: {payload?.items.length ?? 0}</p>
-          <p className="text-xs text-muted">Loaded: {asTime(lastLoadedAt)}</p>
+          <p className="text-xs text-muted">{payload?.items.length ?? 0}{text.itemCount}</p>
+          <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
         </div>
-        {payload?.scope ? (
-          <p className="mt-2 text-xs text-muted">
-            Scope: {payload.scope.mode} / user {payload.scope.user_id}
-          </p>
-        ) : null}
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Latest Daily PnL</p>
-          <p className="mt-1 font-display text-2xl">{asPct(latest?.daily_pnl_pct)}</p>
-          <p className="text-sm text-muted">{asKrw(latest?.daily_pnl_abs)}</p>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.latestDailyPnl}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{asPct(latest?.daily_pnl_pct, intlLocale)}</p>
+          <p className="text-sm text-muted">{asKrw(latest?.daily_pnl_abs, intlLocale)}</p>
         </article>
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Latest Realized Daily</p>
-          <p className="mt-1 font-display text-2xl">{asPct(latest?.realized_daily_pct)}</p>
-          <p className="text-sm text-muted">{asKrw(latest?.realized_daily_abs)}</p>
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.latestRealizedDaily}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{asPct(latest?.realized_daily_pct, intlLocale)}</p>
+          <p className="text-sm text-muted">{asKrw(latest?.realized_daily_abs, intlLocale)}</p>
         </article>
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Latest Equity</p>
-          <p className="mt-1 font-display text-2xl">{asKrw(latest?.last_equity)}</p>
-          <p className="text-sm text-muted">Date: {latest?.date || "-"}</p>
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.latestEquity}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{asKrw(latest?.last_equity, intlLocale)}</p>
+          <p className="text-sm text-muted">{text.date}: {latest?.date || "-"}</p>
         </article>
       </section>
 
-      <section className="panel overflow-auto p-2">
+      <section className="data-panel overflow-auto">
         <table className="min-w-[980px] w-full border-collapse text-sm">
           <thead>
             <tr className="text-left text-muted">
-              <th className="border-b border-black/10 p-2">Date ({payload?.tz || timezone})</th>
-              <th className="border-b border-black/10 p-2">Start Equity</th>
-              <th className="border-b border-black/10 p-2">Last Equity</th>
-              <th className="border-b border-black/10 p-2">Daily PnL</th>
-              <th className="border-b border-black/10 p-2">Daily PnL %</th>
-              <th className="border-b border-black/10 p-2">Realized Daily</th>
-              <th className="border-b border-black/10 p-2">Realized Daily %</th>
-              <th className="border-b border-black/10 p-2">Updated</th>
+              <th className="border-b border-black/10 p-2">{text.date}</th>
+              <th className="border-b border-black/10 p-2">{text.startEquity}</th>
+              <th className="border-b border-black/10 p-2">{text.lastEquity}</th>
+              <th className="border-b border-black/10 p-2">{text.dailyPnl}</th>
+              <th className="border-b border-black/10 p-2">{text.dailyPnlPct}</th>
+              <th className="border-b border-black/10 p-2">{text.realizedDaily}</th>
+              <th className="border-b border-black/10 p-2">{text.realizedDailyPct}</th>
+              <th className="border-b border-black/10 p-2">{text.updated}</th>
             </tr>
           </thead>
           <tbody>
@@ -153,19 +135,19 @@ export default function PnlPage() {
               payload.items.map((row) => (
                 <tr key={`${row.date}-${row.updated_at_utc || ""}`}>
                   <td className="border-b border-black/10 p-2">{row.date}</td>
-                  <td className="border-b border-black/10 p-2">{asKrw(row.start_equity)}</td>
-                  <td className="border-b border-black/10 p-2">{asKrw(row.last_equity)}</td>
-                  <td className="border-b border-black/10 p-2">{asKrw(row.daily_pnl_abs)}</td>
-                  <td className="border-b border-black/10 p-2">{asPct(row.daily_pnl_pct)}</td>
-                  <td className="border-b border-black/10 p-2">{asKrw(row.realized_daily_abs)}</td>
-                  <td className="border-b border-black/10 p-2">{asPct(row.realized_daily_pct)}</td>
-                  <td className="border-b border-black/10 p-2">{asTime(row.updated_at_kst || row.updated_at_utc)}</td>
+                  <td className="border-b border-black/10 p-2">{asKrw(row.start_equity, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asKrw(row.last_equity, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asKrw(row.daily_pnl_abs, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asPct(row.daily_pnl_pct, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asKrw(row.realized_daily_abs, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asPct(row.realized_daily_pct, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asTime(row.updated_at_kst || row.updated_at_utc, intlLocale)}</td>
                 </tr>
               ))
             ) : (
               <tr>
                 <td colSpan={8} className="border-b border-black/10 p-3 text-muted">
-                  {isLoading ? "Loading..." : "No daily rows found."}
+                  {isLoading ? text.reloading : text.latestDailyRowsEmpty}
                 </td>
               </tr>
             )}

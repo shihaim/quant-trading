@@ -4,8 +4,8 @@ import { AppShell } from "../components/app-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Ops Console",
-  description: "Quant trading operations console"
+  title: "Don't worry, Be happy",
+  description: "Bright quant trading operations console"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

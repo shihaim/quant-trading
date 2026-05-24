@@ -1,12 +1,19 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap");
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg: #f7f4ee;
-  --line: rgba(19, 36, 47, 0.12);
+  --bg: #f9fafb;
+  --surface: #ffffff;
+  --ink: #111827;
+  --muted: #64748b;
+  --line: #f1f5f9;
+  --line-strong: #e2e8f0;
+  --accent: #00e676;
+  --danger: #ff4d4d;
+  --info: #2563eb;
 }
 
 * {
@@ -17,15 +24,162 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  color: #13242f;
-  background: linear-gradient(145deg, #f7f4ee 0%, #fff8ef 45%, #eff6ea 100%);
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "Pretendard", "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(4px);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.035);
+}
+
+.page {
+  width: 100%;
+  max-width: 1200px;
+  min-width: 0;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+  padding: 12px 0 40px;
+}
+
+.page-narrow {
+  max-width: 560px;
+}
+
+.page-header {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  padding: 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.035);
+}
+
+.page-toolbar {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  padding: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.025);
+}
+
+.metric-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  padding: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.025);
+}
+
+.data-panel {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  padding: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.025);
+}
+
+.form-control {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 0.72rem 0.9rem;
+  color: var(--ink);
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.form-control:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 230, 118, 0.16);
+}
+
+.btn {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  padding: 0 16px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.btn-primary {
+  background: var(--ink);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: #1e293b;
+}
+
+.btn-secondary {
+  border: 1px solid var(--line-strong);
+  background: #ffffff;
+  color: var(--ink);
+}
+
+.btn-secondary:hover {
+  background: #f8fafc;
+}
+
+code {
+  border-radius: 8px;
+  background: #f1f5f9;
+  padding: 0.1rem 0.35rem;
+  color: #334155;
+  font-size: 0.92em;
+}
+
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+.data-panel table {
+  width: max-content;
+  min-width: 100%;
+}
+
+thead tr {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+tbody tr {
+  transition: background-color 150ms ease;
+}
+
+tbody tr:hover {
+  background: #f8fafc;
+}
+
+input,
+select {
+  border-color: var(--line-strong) !important;
+  border-radius: 12px !important;
+}
+
+th,
+td {
+  white-space: nowrap;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
 

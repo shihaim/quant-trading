@@ -223,11 +223,11 @@ export function OpsDashboard({
 
   return (
     <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
-      <header className="panel flex flex-col gap-4 p-4 md:flex-row md:items-start md:justify-between">
+      <header className="panel flex flex-col gap-4 p-6 md:flex-row md:items-start md:justify-between">
         <div className="grid gap-1">
-          <p className="text-xs uppercase tracking-[0.08em] text-muted">{text.subtitle}</p>
-          <h1 className="font-display text-2xl">{text.title}</h1>
-          <p className="text-sm text-muted">
+          <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{text.subtitle}</p>
+          <h1 className="font-display text-3xl font-black tracking-tight text-ink">{text.title}</h1>
+          <p className="text-sm font-medium text-muted">
             {text.serverTime}: {asTime(summary?.server_time_kst || summary?.server_time_utc, intlLocale)}
             {error ? ` (error: ${error})` : ""}
           </p>
@@ -235,15 +235,15 @@ export function OpsDashboard({
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-sm text-muted">
             {text.language}
-            <div className="flex rounded-md border border-black/10 bg-white p-0.5">
+            <div className="flex rounded-xl bg-[#f1f5f9] p-1">
               <button
-                className={`rounded px-2 py-1 text-xs ${locale === "ko" ? "bg-black text-white" : ""}`}
+                className={`rounded-lg px-2 py-1 text-xs font-black ${locale === "ko" ? "bg-white text-ink shadow-sm" : ""}`}
                 onClick={() => setLocale("ko")}
               >
                 {text.korean}
               </button>
               <button
-                className={`rounded px-2 py-1 text-xs ${locale === "en" ? "bg-black text-white" : ""}`}
+                className={`rounded-lg px-2 py-1 text-xs font-black ${locale === "en" ? "bg-white text-ink shadow-sm" : ""}`}
                 onClick={() => setLocale("en")}
               >
                 {text.english}
@@ -265,7 +265,7 @@ export function OpsDashboard({
             </select>
           </label>
           <button
-            className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm"
+            className="rounded-xl bg-ink px-3 py-2 text-sm font-black text-white transition-colors hover:bg-[#1e293b]"
             onClick={() => void loadSummary()}
             disabled={isLoading}
           >
@@ -274,7 +274,7 @@ export function OpsDashboard({
         </div>
       </header>
 
-      <section className="panel grid grid-cols-2 gap-2 p-3 md:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatusChip label={text.mode} value={summary?.trade_mode || "-"} />
         <StatusChip label={text.bot} value={botStatusLabel} statusCode={botStatusRaw} />
         <StatusChip
@@ -304,10 +304,10 @@ export function OpsDashboard({
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-2">
-        <article className="panel p-4">
-          <h2 className="font-display text-lg">{text.todayPnl}</h2>
-          <p className="mt-3 font-display text-4xl">{asPct(summary?.today_pnl.daily_pnl_pct, intlLocale)}</p>
-          <p className="mt-1 text-sm text-muted">{asKrw(summary?.today_pnl.daily_pnl_abs, intlLocale)}</p>
+        <article className="panel p-6">
+          <h2 className="font-display text-xl font-black tracking-tight">{text.todayPnl}</h2>
+          <p className="mt-3 font-display text-5xl font-black tracking-tight">{asPct(summary?.today_pnl.daily_pnl_pct, intlLocale)}</p>
+          <p className="mt-1 text-sm font-bold text-muted">{asKrw(summary?.today_pnl.daily_pnl_abs, intlLocale)}</p>
           <p className="mt-2 text-sm text-muted">
             {text.basis}: {summary?.today_pnl.basis_used || "-"}
           </p>
@@ -334,8 +334,8 @@ export function OpsDashboard({
           </div>
         </article>
 
-        <article className="panel p-4">
-          <h2 className="font-display text-lg">{text.ordersRisk}</h2>
+        <article className="panel p-6">
+          <h2 className="font-display text-xl font-black tracking-tight">{text.ordersRisk}</h2>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <KpiCell label="ERROR_NEEDS_REVIEW" value={asInt(summary?.orders.counts.ERROR_NEEDS_REVIEW, intlLocale)} />
             <KpiCell label="OPEN" value={asInt(summary?.orders.counts.OPEN, intlLocale)} />
@@ -385,8 +385,8 @@ export function OpsDashboard({
         </article>
       </section>
 
-      <section className="panel p-4">
-        <h2 className="font-display text-lg">{text.executionQuality}</h2>
+      <section className="panel p-6">
+        <h2 className="font-display text-xl font-black tracking-tight">{text.executionQuality}</h2>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
           <KpiCell label={text.avgSlippage} value={asPct(summary?.execution_quality.kpi.avg_slippage_pct, intlLocale)} />
           <KpiCell label={text.p95Slippage} value={asPct(summary?.execution_quality.kpi.p95_slippage_pct, intlLocale)} />
@@ -439,10 +439,10 @@ export function OpsDashboard({
         </div>
       </section>
 
-      <section className="panel p-4">
+      <section className="panel p-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="font-display text-lg">{text.configSummary}</h2>
+            <h2 className="font-display text-xl font-black tracking-tight">{text.configSummary}</h2>
             <p className="text-sm text-muted">{text.updatedAt}: {asTime(summary?.config.updated_at_utc, intlLocale)}</p>
           </div>
           <QuickLink href="/control">{text.viewControl}</QuickLink>
@@ -515,7 +515,7 @@ function QuickLink({ href, children }: { href: string; children: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:border-black/20 hover:bg-black/5"
+      className="rounded-xl border border-[#e2e8f0] bg-white px-3 py-2 text-sm font-black transition-colors hover:bg-[#f8fafc]"
     >
       {children}
     </Link>
@@ -534,25 +534,25 @@ function StatusChip({
   const source = statusCode || value;
   const statusColor =
     source === "RUNNING"
-      ? "text-safe"
+      ? "text-ink bg-safe"
       : source === "HALTED"
-        ? "text-danger"
+        ? "text-danger bg-danger/10"
         : source === "DEGRADED"
-          ? "text-amber-600"
-          : "text-ink";
+          ? "text-amber-700 bg-amber-100"
+          : "text-ink bg-[#f1f5f9]";
   return (
-    <div className="rounded-xl border border-dashed border-black/10 p-3">
-      <p className="text-[11px] uppercase tracking-[0.05em] text-muted">{label}</p>
-      <p className={`font-display text-base ${statusColor}`}>{value}</p>
+    <div className="panel p-4">
+      <p className="text-[11px] font-black uppercase tracking-[0.05em] text-muted">{label}</p>
+      <p className={`mt-2 inline-flex rounded-lg px-3 py-1.5 font-display text-sm font-black ${statusColor}`}>{value}</p>
     </div>
   );
 }
 
 function KpiCell({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-black/10 p-3">
-      <p className="text-xs text-muted">{label}</p>
-      <p className="mt-1 font-display text-base break-words">{value}</p>
+    <div className="rounded-2xl border border-line bg-[#f8fafc] p-3">
+      <p className="text-xs font-bold text-muted">{label}</p>
+      <p className="mt-1 break-words font-display text-base font-black tracking-tight">{value}</p>
     </div>
   );
 }

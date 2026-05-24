@@ -6,6 +6,8 @@ import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 
 import { opsApi, writeStoredAccessToken } from "../../lib/api";
 import { normalizeNextPath, readAccessTokenOrEmpty } from "../../lib/auth";
+import { useLocale } from "../../lib/locale";
+import { toUserFacingErrorMessage } from "../../lib/user-facing-error";
 
 export default function SignupPage() {
   return (
@@ -18,6 +20,7 @@ export default function SignupPage() {
 function SignupPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { locale, text } = useLocale();
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -45,24 +48,24 @@ function SignupPageInner() {
       setError("");
       router.replace(nextPath);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "failed to signup");
+      setError(toUserFacingErrorMessage(requestError, "signup", locale));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <main className="mx-auto grid w-[min(560px,92vw)] gap-4 py-7">
-      <section className="panel p-5">
-        <p className="text-xs uppercase tracking-[0.08em] text-muted">Authentication</p>
-        <h1 className="mt-1 font-display text-2xl">Sign Up</h1>
-        <p className="mt-2 text-sm text-muted">Create an account and continue directly to authenticated pages.</p>
+    <main className="page page-narrow">
+      <section className="page-header p-6">
+        <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{text.auth}</p>
+        <h1 className="mt-2 font-display text-3xl font-black tracking-tight">{text.signup}</h1>
+        <p className="mt-2 text-sm font-medium text-muted">{text.signupIntro}</p>
 
         <form className="mt-4 grid gap-3" onSubmit={(event) => void onSubmit(event)}>
           <label className="grid gap-1 text-sm text-muted">
-            Email
+            {text.email}
             <input
-              className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-ink"
+              className="form-control"
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -71,9 +74,9 @@ function SignupPageInner() {
             />
           </label>
           <label className="grid gap-1 text-sm text-muted">
-            Display Name (optional)
+            {text.displayName}
             <input
-              className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-ink"
+              className="form-control"
               type="text"
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
@@ -81,9 +84,9 @@ function SignupPageInner() {
             />
           </label>
           <label className="grid gap-1 text-sm text-muted">
-            Password
+            {text.password}
             <input
-              className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm text-ink"
+              className="form-control"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -93,23 +96,23 @@ function SignupPageInner() {
             />
           </label>
           <button
-            className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
+            className="btn btn-primary w-full"
             type="submit"
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Creating account..." : "Create Account"}
+            {isSubmitting ? text.creatingAccount : text.createAccount}
           </button>
         </form>
 
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
 
         <div className="mt-4 flex flex-wrap gap-2 text-sm">
-          <span className="text-muted">Already have an account?</span>
+          <span className="text-muted">{text.alreadyHaveAccount}</span>
           <Link
             href={`/login?next=${encodeURIComponent(nextPath)}`}
-            className="rounded-md border border-black/10 bg-white px-2 py-1 transition-colors hover:bg-black/5"
+            className="btn btn-secondary min-h-8 px-3"
           >
-            Sign in
+            {text.signIn}
           </Link>
         </div>
       </section>
@@ -118,10 +121,11 @@ function SignupPageInner() {
 }
 
 function AuthPageFallback() {
+  const { text } = useLocale();
   return (
-    <main className="mx-auto grid w-[min(560px,92vw)] gap-4 py-7">
+    <main className="page page-narrow">
       <section className="panel p-5">
-        <p className="text-sm text-muted">Loading authentication...</p>
+        <p className="text-sm text-muted">{text.loadingAuth}</p>
       </section>
     </main>
   );

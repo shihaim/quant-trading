@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { opsApi } from "../../lib/api";
 import { asDecimal, asInt, asPct, asTime } from "../../lib/format";
+import { useLocale } from "../../lib/locale";
 import type { MeTradeMetricsResponse } from "../../lib/types";
 import { useAuthGuard } from "../../lib/use-auth-guard";
 
@@ -11,6 +12,7 @@ const LIMIT_OPTIONS = [50, 100, 200, 500] as const;
 
 export default function ExecutionPage() {
   const { accessToken, isAuthReady, handleAuthError } = useAuthGuard();
+  const { intlLocale, text } = useLocale();
   const [limit, setLimit] = useState<number>(200);
   const [payload, setPayload] = useState<MeTradeMetricsResponse | null>(null);
   const [error, setError] = useState("");
@@ -32,12 +34,12 @@ export default function ExecutionPage() {
       if (handleAuthError(requestError)) {
         return;
       }
-      setError(requestError instanceof Error ? requestError.message : "failed to load metrics");
+      setError(text.executionLoadError);
       setPayload(null);
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, handleAuthError, isAuthReady, limit]);
+  }, [accessToken, handleAuthError, isAuthReady, limit, text.executionLoadError]);
 
   useEffect(() => {
     if (!isAuthReady || !accessToken) return;
@@ -71,30 +73,27 @@ export default function ExecutionPage() {
 
   if (!isAuthReady) {
     return (
-      <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
+      <main className="page">
         <section className="panel p-5">
-          <p className="text-sm text-muted">Checking authentication...</p>
+          <p className="text-sm text-muted">{text.checkingAuth}</p>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
-      <header className="panel p-4">
-        <p className="text-xs uppercase tracking-[0.08em] text-muted">P1-FE5</p>
-        <h1 className="mt-1 font-display text-2xl">Execution Metrics</h1>
-        <p className="mt-2 text-sm text-muted">
-          User-scoped execution metrics from <code>GET /api/me/metrics/trade</code>.
-        </p>
+    <main className="page">
+      <header className="page-header">
+        <h1 className="mt-1 font-display text-3xl font-black tracking-tight">{text.executionMetrics}</h1>
+        <p className="mt-2 text-sm font-medium text-muted">{text.sourceExecution}</p>
       </header>
 
-      <section className="panel p-4">
+      <section className="page-toolbar">
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-sm text-muted">
-            Limit
+            {text.limit}
             <select
-              className="ml-2 rounded-md border border-black/10 bg-white px-2 py-1 text-sm text-ink"
+              className="ml-2 form-control inline-block w-auto py-1.5"
               value={limit}
               onChange={(event) => setLimit(Number(event.target.value))}
             >
@@ -106,74 +105,69 @@ export default function ExecutionPage() {
             </select>
           </label>
           <button
-            className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
+            className="btn btn-secondary min-h-9"
             onClick={() => void loadMetrics()}
             disabled={isLoading}
           >
-            Reload
+            {text.refresh}
           </button>
-          <p className="text-xs text-muted">Count: {payload?.count ?? 0}</p>
-          <p className="text-xs text-muted">Loaded: {asTime(lastLoadedAt)}</p>
+          <p className="text-xs text-muted">{payload?.count ?? 0}{text.itemCount}</p>
+          <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
         </div>
-        {payload?.scope ? (
-          <p className="mt-2 text-xs text-muted">
-            Scope: {payload.scope.mode} / user {payload.scope.user_id}
-          </p>
-        ) : null}
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Rows</p>
-          <p className="mt-1 font-display text-2xl">{asInt(payload?.count)}</p>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.tradeCount}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{asInt(payload?.count, intlLocale)}</p>
         </article>
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Avg Slippage</p>
-          <p className="mt-1 font-display text-2xl">{asPct(summary.avgSlippagePct)}</p>
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.avgSlippage}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{asPct(summary.avgSlippagePct, intlLocale)}</p>
         </article>
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Avg Fill Time</p>
-          <p className="mt-1 font-display text-2xl">{asInt(summary.avgFillMs)} ms</p>
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.avgFillTime}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{asInt(summary.avgFillMs, intlLocale)} ms</p>
         </article>
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Avg Partial Fills</p>
-          <p className="mt-1 font-display text-2xl">{asDecimal(summary.avgPartialFills)}</p>
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.avgPartialFills}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{asDecimal(summary.avgPartialFills, intlLocale)}</p>
         </article>
       </section>
 
-      <section className="panel overflow-auto p-2">
+      <section className="data-panel overflow-auto">
         <table className="min-w-[1100px] w-full border-collapse text-sm">
           <thead>
             <tr className="text-left text-muted">
-              <th className="border-b border-black/10 p-2">Executed</th>
-              <th className="border-b border-black/10 p-2">Market</th>
-              <th className="border-b border-black/10 p-2">Side</th>
-              <th className="border-b border-black/10 p-2">Intent</th>
-              <th className="border-b border-black/10 p-2">Slippage %</th>
-              <th className="border-b border-black/10 p-2">Fee (KRW)</th>
-              <th className="border-b border-black/10 p-2">Time To Fill (ms)</th>
-              <th className="border-b border-black/10 p-2">Partial Fills</th>
+              <th className="border-b border-black/10 p-2">{text.executed}</th>
+              <th className="border-b border-black/10 p-2">{text.market}</th>
+              <th className="border-b border-black/10 p-2">{text.side}</th>
+              <th className="border-b border-black/10 p-2">{text.intent}</th>
+              <th className="border-b border-black/10 p-2">{text.slippagePct}</th>
+              <th className="border-b border-black/10 p-2">{text.feeKrw}</th>
+              <th className="border-b border-black/10 p-2">{text.avgFillTime} (ms)</th>
+              <th className="border-b border-black/10 p-2">{text.partialFills}</th>
             </tr>
           </thead>
           <tbody>
             {payload?.items.length ? (
               payload.items.map((row) => (
                 <tr key={`${row.order_id}-${row.created_at_utc || ""}-${row.intent || ""}`}>
-                  <td className="border-b border-black/10 p-2">{asTime(row.created_at_kst || row.created_at_utc)}</td>
+                  <td className="border-b border-black/10 p-2">{asTime(row.created_at_kst || row.created_at_utc, intlLocale)}</td>
                   <td className="border-b border-black/10 p-2">{row.market || "-"}</td>
                   <td className="border-b border-black/10 p-2">{row.side || "-"}</td>
                   <td className="border-b border-black/10 p-2">{row.intent || "-"}</td>
-                  <td className="border-b border-black/10 p-2">{asPct(row.slippage_pct)}</td>
-                  <td className="border-b border-black/10 p-2">{asDecimal(row.fee_abs)}</td>
-                  <td className="border-b border-black/10 p-2">{asInt(row.time_to_fill_ms)}</td>
-                  <td className="border-b border-black/10 p-2">{asInt(row.partial_fill_count)}</td>
+                  <td className="border-b border-black/10 p-2">{asPct(row.slippage_pct, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asDecimal(row.fee_abs, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asInt(row.time_to_fill_ms, intlLocale)}</td>
+                  <td className="border-b border-black/10 p-2">{asInt(row.partial_fill_count, intlLocale)}</td>
                 </tr>
               ))
             ) : (
               <tr>
                 <td colSpan={8} className="border-b border-black/10 p-3 text-muted">
-                  {isLoading ? "Loading..." : "No execution rows found."}
+                  {isLoading ? text.reloading : text.noExecutionRows}
                 </td>
               </tr>
             )}

@@ -1,0 +1,296 @@
+"use client";
+
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+
+export type LocaleCode = "ko" | "en";
+export type IntlLocale = "ko-KR" | "en-US";
+
+export const LOCALE_STORAGE_KEY = "dwbh_locale";
+
+export const APP_TEXT = {
+  ko: {
+    appName: "Don't worry, Be happy",
+    product: "업비트 자동매매 대시보드",
+    entry: "시작",
+    dashboard: "대시보드",
+    orders: "주문",
+    pnl: "손익",
+    execution: "체결 품질",
+    control: "자동매매",
+    adminOps: "관리자 운영",
+    login: "로그인",
+    signup: "회원가입",
+    logout: "로그아웃",
+    auth: "인증",
+    email: "이메일",
+    password: "비밀번호",
+    displayName: "표시 이름 (선택)",
+    createAccount: "계정 만들기",
+    creatingAccount: "계정 생성 중...",
+    signIn: "로그인",
+    signingIn: "로그인 중...",
+    signupIntro: "계정을 만들고 자동매매 대시보드로 이동합니다.",
+    loginIntro: "계정별 손익, 주문, 체결 품질, 자동매매 상태를 확인하세요.",
+    alreadyHaveAccount: "이미 계정이 있나요?",
+    noAccount: "계정이 없나요?",
+    checkingAuth: "인증 상태 확인 중...",
+    loadingAuth: "화면을 불러오는 중...",
+    welcome: "환영합니다",
+    signedInAs: "로그인 계정",
+    role: "역할",
+    admin: "관리자",
+    user: "사용자",
+    workspace: "작업 공간",
+    userViews: "사용자 화면",
+    refresh: "새로고침",
+    reloading: "불러오는 중...",
+    days: "기간",
+    recentUpdate: "최근 업데이트",
+    itemCount: "개 항목",
+    tradeCount: "거래 수",
+    state: "상태",
+    limit: "표시 수",
+    allRecent: "전체 최근 내역",
+    latestDailyPnl: "최근 일별 손익",
+    latestRealizedDaily: "최근 실현 손익",
+    latestEquity: "최근 평가 자산",
+    date: "날짜",
+    startEquity: "시작 자산",
+    lastEquity: "최근 자산",
+    dailyPnl: "일별 손익",
+    dailyPnlPct: "일별 손익률",
+    realizedDaily: "실현 손익",
+    realizedDailyPct: "실현 손익률",
+    updated: "업데이트",
+    market: "마켓",
+    side: "방향",
+    intent: "의도",
+    orderNote: "알림",
+    latestDailyRowsEmpty: "아직 표시할 손익 데이터가 없습니다.",
+    noOrders: "최근 주문 내역이 없습니다.",
+    noExecutionRows: "아직 표시할 체결 품질 데이터가 없습니다.",
+    executionMetrics: "체결 품질",
+    avgSlippage: "평균 슬리피지",
+    avgFillTime: "평균 체결 시간",
+    avgPartialFills: "평균 부분 체결",
+    partialFills: "부분 체결",
+    feeKrw: "수수료",
+    slippagePct: "슬리피지",
+    executed: "체결 시각",
+    mode: "모드",
+    status: "상태",
+    automatedTradingStatus: "자동매매 상태",
+    riskStatus: "리스크 상태",
+    orderLimitStatus: "주문 제한 상태",
+    cooldownStatus: "쿨다운 상태",
+    normal: "정상",
+    attention: "확인 필요",
+    noCooldown: "대기 없음",
+    riskSummary: "일별 손실 한도와 월간 손실 한도가 적용 중입니다.",
+    orderLimitSummary: "일별/주간 주문 제한이 적용 중입니다.",
+    cooldownSummary: "중지 후 재시작 대기 시간이 적용될 수 있습니다.",
+    controlActions: "자동매매 제어",
+    requestStart: "시작 요청",
+    requestStop: "정지 요청",
+    reloadStatus: "상태 새로고침",
+    haltReason: "중지 사유",
+    cooldownUntil: "쿨다운 종료",
+    pendingAction: "대기 중인 작업",
+    confirmAction: "작업을 자동매매 상태에 적용합니다.",
+    confirm: "확인",
+    cancel: "취소",
+    lastActionResult: "최근 작업 결과",
+    enabled: "활성화",
+    disabled: "비활성화",
+    controlFlowNote: "시작 또는 정지를 요청한 뒤 한 번 더 확인합니다.",
+    sourceOrders: "최근 주문 상태를 확인합니다.",
+    sourcePnl: "일별 자산과 손익 흐름을 확인합니다.",
+    sourceExecution: "거래가 얼마나 안정적으로 체결되는지 확인합니다.",
+    sourceControl: "자동매매 시작과 정지 상태를 확인합니다.",
+    entryIntro: "업비트 자동매매의 손익, 주문, 체결 품질을 한곳에서 확인하는 투자 운영 대시보드입니다.",
+    landingDescription: "사용자별 계정으로 로그인해 손익 흐름과 주문 내역을 확인하고, 자동매매 상태를 명확하게 관리하세요.",
+    landingPrimary: "대시보드 로그인",
+    landingSecondary: "계정 만들기",
+    riskFirst: "리스크 우선",
+    guardedExecution: "자동매매 상태 확인",
+    guardedExecutionDesc: "손실 한도와 주문 제한을 기준으로 자동매매 상태를 확인합니다.",
+    numbers: "손익",
+    tabularMetrics: "흔들림 없는 숫자",
+    tabularMetricsDesc: "자산과 손익을 고정폭 숫자로 읽기 쉽게 보여줍니다.",
+    operations: "운영",
+    cleanControlFlow: "주문과 체결 품질",
+    cleanControlFlowDesc: "최근 주문 상태와 체결 품질을 사용자별로 정리합니다.",
+    ordersLoadError: "주문 내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    pnlLoadError: "손익 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    executionLoadError: "체결 품질 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    controlLoadError: "자동매매 상태를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    controlUpdateError: "자동매매 상태를 변경하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    userLoadError: "계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."
+  },
+  en: {
+    appName: "Don't worry, Be happy",
+    product: "Upbit automated trading dashboard",
+    entry: "Entry",
+    dashboard: "Dashboard",
+    orders: "Orders",
+    pnl: "Profit & Loss",
+    execution: "Execution Quality",
+    control: "Automated Trading",
+    adminOps: "Admin Ops",
+    login: "Login",
+    signup: "Sign Up",
+    logout: "Logout",
+    auth: "Authentication",
+    email: "Email",
+    password: "Password",
+    displayName: "Display Name (optional)",
+    createAccount: "Create Account",
+    creatingAccount: "Creating account...",
+    signIn: "Sign In",
+    signingIn: "Signing in...",
+    signupIntro: "Create an account and continue to the automated trading dashboard.",
+    loginIntro: "Review account-specific P&L, orders, execution quality, and automated trading status.",
+    alreadyHaveAccount: "Already have an account?",
+    noAccount: "No account?",
+    checkingAuth: "Checking authentication...",
+    loadingAuth: "Loading...",
+    welcome: "Welcome",
+    signedInAs: "Signed in as",
+    role: "Role",
+    admin: "Admin",
+    user: "User",
+    workspace: "Workspace",
+    userViews: "User Views",
+    refresh: "Refresh",
+    reloading: "Loading...",
+    days: "Days",
+    recentUpdate: "Last updated",
+    itemCount: " items",
+    tradeCount: "Trades",
+    state: "State",
+    limit: "Limit",
+    allRecent: "All recent",
+    latestDailyPnl: "Latest Daily P&L",
+    latestRealizedDaily: "Latest Realized P&L",
+    latestEquity: "Latest Equity",
+    date: "Date",
+    startEquity: "Start Equity",
+    lastEquity: "Latest Equity",
+    dailyPnl: "Daily P&L",
+    dailyPnlPct: "Daily P&L %",
+    realizedDaily: "Realized P&L",
+    realizedDailyPct: "Realized P&L %",
+    updated: "Updated",
+    market: "Market",
+    side: "Side",
+    intent: "Intent",
+    orderNote: "Note",
+    latestDailyRowsEmpty: "No profit and loss data yet.",
+    noOrders: "No recent orders.",
+    noExecutionRows: "No execution quality data yet.",
+    executionMetrics: "Execution Quality",
+    avgSlippage: "Avg Slippage",
+    avgFillTime: "Avg Fill Time",
+    avgPartialFills: "Avg Partial Fills",
+    partialFills: "Partial Fills",
+    feeKrw: "Fee",
+    slippagePct: "Slippage",
+    executed: "Executed",
+    mode: "Mode",
+    status: "Status",
+    automatedTradingStatus: "Automated Trading",
+    riskStatus: "Risk Status",
+    orderLimitStatus: "Order Limits",
+    cooldownStatus: "Cooldown",
+    normal: "Normal",
+    attention: "Needs attention",
+    noCooldown: "No wait",
+    riskSummary: "Daily and monthly loss limits are active.",
+    orderLimitSummary: "Daily and weekly order limits are active.",
+    cooldownSummary: "A restart wait may apply after a halt.",
+    controlActions: "Automated Trading Controls",
+    requestStart: "Request Start",
+    requestStop: "Request Stop",
+    reloadStatus: "Refresh Status",
+    haltReason: "Halt reason",
+    cooldownUntil: "Cooldown until",
+    pendingAction: "Pending action",
+    confirmAction: "Apply this action to automated trading.",
+    confirm: "Confirm",
+    cancel: "Cancel",
+    lastActionResult: "Last action result",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    controlFlowNote: "Request start or stop, then confirm once more.",
+    sourceOrders: "Review recent order status.",
+    sourcePnl: "Review daily equity and profit and loss.",
+    sourceExecution: "Review how consistently trades are filled.",
+    sourceControl: "Review automated trading start and stop status.",
+    entryIntro: "An investment operations dashboard for reviewing Upbit automated trading P&L, orders, and execution quality in one place.",
+    landingDescription: "Sign in with your account to review profit and loss, order history, and automated trading status with clarity.",
+    landingPrimary: "Log in to dashboard",
+    landingSecondary: "Create account",
+    riskFirst: "Risk First",
+    guardedExecution: "Automated trading status",
+    guardedExecutionDesc: "Review automated trading status against loss limits and order limits.",
+    numbers: "Profit & Loss",
+    tabularMetrics: "Stable financial numbers",
+    tabularMetricsDesc: "Equity and P&L use fixed-width numeric rendering for easy scanning.",
+    operations: "Operations",
+    cleanControlFlow: "Orders and execution quality",
+    cleanControlFlowDesc: "Recent orders and execution quality are organized by user account.",
+    ordersLoadError: "We could not load orders. Please try again shortly.",
+    pnlLoadError: "We could not load profit and loss. Please try again shortly.",
+    executionLoadError: "We could not load execution quality. Please try again shortly.",
+    controlLoadError: "We could not load automated trading status. Please try again shortly.",
+    controlUpdateError: "We could not update automated trading status. Please try again shortly.",
+    userLoadError: "We could not load account information. Please try again shortly."
+  }
+} as const;
+
+type LocaleContextValue = {
+  locale: LocaleCode;
+  intlLocale: IntlLocale;
+  text: (typeof APP_TEXT)[LocaleCode];
+  setLocale: (locale: LocaleCode) => void;
+};
+
+const LocaleContext = createContext<LocaleContextValue | null>(null);
+
+function normalizeLocale(value: string | null | undefined): LocaleCode {
+  return value === "en" ? "en" : "ko";
+}
+
+export function LocaleProvider({ children }: { children: ReactNode }) {
+  const [locale, setLocaleState] = useState<LocaleCode>("ko");
+
+  useEffect(() => {
+    const saved = normalizeLocale(window.localStorage.getItem(LOCALE_STORAGE_KEY));
+    setLocaleState(saved);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  const value = useMemo<LocaleContextValue>(
+    () => ({
+      locale,
+      intlLocale: locale === "ko" ? "ko-KR" : "en-US",
+      text: APP_TEXT[locale],
+      setLocale: setLocaleState
+    }),
+    [locale]
+  );
+
+  return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
+}
+
+export function useLocale() {
+  const value = useContext(LocaleContext);
+  if (value === null) {
+    throw new Error("useLocale must be used inside LocaleProvider");
+  }
+  return value;
+}

@@ -7,29 +7,38 @@ import { useEffect, useState } from "react";
 
 import { opsApi } from "../lib/api";
 import { buildLoginPath, clearAuthSession, readAccessTokenOrEmpty } from "../lib/auth";
+import { LocaleProvider, type LocaleCode, useLocale } from "../lib/locale";
 
-const PUBLIC_NAV_ITEMS = [{ href: "/", label: "Entry" }];
+const APP_NAME = "Don't worry, Be happy";
 
-const AUTH_NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/orders", label: "Orders" },
-  { href: "/pnl", label: "PnL" },
-  { href: "/execution", label: "Execution Metrics" },
-  { href: "/control", label: "Bot Control" }
+type NavItem = { href: string; labelKey: "dashboard" | "orders" | "pnl" | "execution" | "control" | "adminOps" };
+
+const AUTH_NAV_ITEMS: NavItem[] = [
+  { href: "/dashboard", labelKey: "dashboard" },
+  { href: "/orders", labelKey: "orders" },
+  { href: "/pnl", labelKey: "pnl" },
+  { href: "/execution", labelKey: "execution" },
+  { href: "/control", labelKey: "control" }
 ];
 
-const ADMIN_NAV_ITEMS = [{ href: "/admin/ops", label: "Admin Ops" }];
+const ADMIN_NAV_ITEMS: NavItem[] = [{ href: "/admin/ops", labelKey: "adminOps" }];
 
 function isActivePath(pathname: string, href: string): boolean {
-  if (href === "/") {
-    return pathname === "/";
-  }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <LocaleProvider>
+      <AppShellContent>{children}</AppShellContent>
+    </LocaleProvider>
+  );
+}
+
+function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { locale, setLocale, text } = useLocale();
   const [authToken, setAuthToken] = useState(() => readAccessTokenOrEmpty().trim());
   const [isAdmin, setIsAdmin] = useState(false);
   const hasToken = Boolean(authToken);
@@ -63,70 +72,105 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, [authToken]);
 
-  const navItems = hasToken ? [...AUTH_NAV_ITEMS, ...(isAdmin ? ADMIN_NAV_ITEMS : [])] : PUBLIC_NAV_ITEMS;
+  const navItems = [...AUTH_NAV_ITEMS, ...(isAdmin ? ADMIN_NAV_ITEMS : [])];
 
   return (
-    <div className="min-h-screen px-4 py-4 md:px-6">
-      <header className="mx-auto mb-4 w-[min(1200px,92vw)]">
-        <div className="panel overflow-hidden">
-          <div className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
-            <div className="grid gap-1">
-              <p className="text-xs uppercase tracking-[0.08em] text-muted">Quant Trading</p>
-              <h1 className="font-display text-xl">Ops Console</h1>
-            </div>
-            <nav className="flex flex-wrap gap-2">
-              {navItems.map((item) => {
-                const isActive = isActivePath(pathname, item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`rounded-md px-3 py-2 text-sm transition-colors ${
-                      isActive ? "bg-ink text-white" : "border border-black/10 bg-white hover:bg-black/5"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-              {hasToken ? (
-                <button
-                  className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
-                  onClick={() => {
-                    clearAuthSession();
-                    setAuthToken("");
-                    setIsAdmin(false);
-                    const safeNext = pathname && pathname.startsWith("/") ? pathname : "/dashboard";
-                    router.push(buildLoginPath(safeNext, "logged_out"));
-                  }}
+    <div className="min-h-screen bg-canvas text-ink md:flex">
+      {hasToken ? (
+        <aside className="hidden w-72 shrink-0 border-r border-[#e2e8f0] bg-white px-6 py-7 md:flex md:flex-col">
+          <Link href="/dashboard" className="flex items-center gap-3">
+            <span className="inline-block h-8 w-4 -skew-x-12 rounded-sm bg-safe" aria-hidden="true" />
+            <span className="font-display text-2xl font-black tracking-tight text-ink">{APP_NAME}</span>
+          </Link>
+          <nav className="mt-10 grid gap-1.5">
+            {navItems.map((item) => {
+              const isActive = isActivePath(pathname, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`rounded-xl px-4 py-3 text-sm font-bold transition-colors ${
+                    isActive ? "bg-[#f1f5f9] text-ink" : "text-muted hover:bg-[#f8fafc] hover:text-ink"
+                  }`}
                 >
-                  Logout
-                </button>
-              ) : (
-                <>
-                  <Link
-                    href="/login?next=%2Fdashboard"
-                    className={`rounded-md px-3 py-2 text-sm transition-colors ${
-                      pathname === "/login" ? "bg-ink text-white" : "border border-black/10 bg-white hover:bg-black/5"
-                    }`}
+                  {text[item.labelKey]}
+                </Link>
+              );
+            })}
+          </nav>
+        </aside>
+      ) : null}
+
+      <div className="min-w-0 flex-1 overflow-hidden px-4 py-4 md:px-8 lg:px-10">
+        <header className="mx-auto mb-5 w-full max-w-[1200px]">
+          <div className="panel overflow-hidden">
+            <div className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
+              <Link href={hasToken ? "/dashboard" : "/"} className="grid gap-1">
+                <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-muted">{text.product}</p>
+                <h1 className="font-display text-2xl font-black tracking-tight">{APP_NAME}</h1>
+              </Link>
+              <nav className="flex min-w-0 flex-wrap items-center gap-2">
+                <LocaleSwitch locale={locale} setLocale={setLocale} />
+                {hasToken ? (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      clearAuthSession();
+                      setAuthToken("");
+                      setIsAdmin(false);
+                      const safeNext = pathname && pathname.startsWith("/") ? pathname : "/dashboard";
+                      router.push(buildLoginPath(safeNext, "logged_out"));
+                    }}
                   >
-                    Login
-                  </Link>
-                  <Link
-                    href="/signup?next=%2Fdashboard"
-                    className={`rounded-md px-3 py-2 text-sm transition-colors ${
-                      pathname === "/signup" ? "bg-ink text-white" : "border border-black/10 bg-white hover:bg-black/5"
-                    }`}
-                  >
-                    Sign Up
-                  </Link>
-                </>
-              )}
-            </nav>
+                    {text.logout}
+                  </button>
+                ) : (
+                  <>
+                    <Link href="/login?next=%2Fdashboard" className="btn btn-secondary">
+                      {text.login}
+                    </Link>
+                    <Link href="/signup?next=%2Fdashboard" className="btn btn-primary">
+                      {text.signup}
+                    </Link>
+                  </>
+                )}
+              </nav>
+            </div>
           </div>
-        </div>
-      </header>
-      {children}
+        </header>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function LocaleSwitch({
+  locale,
+  setLocale
+}: {
+  locale: LocaleCode;
+  setLocale: (locale: LocaleCode) => void;
+}) {
+  return (
+    <div className="flex min-h-11 items-center rounded-2xl bg-[#f1f5f9] p-1">
+      <button
+        className={`flex min-h-9 items-center rounded-xl px-3 text-xs font-black ${
+          locale === "ko" ? "bg-white text-ink shadow-sm" : "text-muted"
+        }`}
+        onClick={() => setLocale("ko")}
+        type="button"
+      >
+        {locale === "ko" ? "한국어" : "KO"}
+      </button>
+      <button
+        className={`flex min-h-9 items-center rounded-xl px-3 text-xs font-black ${
+          locale === "en" ? "bg-white text-ink shadow-sm" : "text-muted"
+        }`}
+        onClick={() => setLocale("en")}
+        type="button"
+      >
+        EN
+      </button>
     </div>
   );
 }

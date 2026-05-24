@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { opsApi } from "../../lib/api";
-import { asPct, asTime } from "../../lib/format";
+import { asTime } from "../../lib/format";
+import { useLocale } from "../../lib/locale";
 import type { MeBotMutateResponse, MeBotStatusResponse } from "../../lib/types";
 import { useAuthGuard } from "../../lib/use-auth-guard";
 
@@ -11,6 +12,7 @@ type PendingAction = "start" | "stop" | null;
 
 export default function ControlPage() {
   const { accessToken, isAuthReady, handleAuthError } = useAuthGuard();
+  const { intlLocale, text } = useLocale();
   const [status, setStatus] = useState<MeBotStatusResponse | null>(null);
   const [lastMutation, setLastMutation] = useState<MeBotMutateResponse | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
@@ -34,12 +36,12 @@ export default function ControlPage() {
       if (handleAuthError(requestError)) {
         return;
       }
-      setError(requestError instanceof Error ? requestError.message : "failed to load bot status");
+      setError(text.controlLoadError);
       setStatus(null);
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, handleAuthError, isAuthReady]);
+  }, [accessToken, handleAuthError, isAuthReady, text.controlLoadError]);
 
   useEffect(() => {
     if (!isAuthReady || !accessToken) return;
@@ -47,10 +49,7 @@ export default function ControlPage() {
   }, [isAuthReady, accessToken, loadStatus]);
 
   const applyAction = useCallback(async () => {
-    if (!pendingAction) {
-      return;
-    }
-    if (!isAuthReady || !accessToken) {
+    if (!pendingAction || !isAuthReady || !accessToken) {
       return;
     }
     setIsMutating(true);
@@ -65,133 +64,107 @@ export default function ControlPage() {
       if (handleAuthError(requestError)) {
         return;
       }
-      setError(requestError instanceof Error ? requestError.message : "failed to update bot status");
+      setError(text.controlUpdateError);
     } finally {
       setIsMutating(false);
     }
-  }, [accessToken, handleAuthError, isAuthReady, loadStatus, pendingAction]);
+  }, [accessToken, handleAuthError, isAuthReady, loadStatus, pendingAction, text.controlUpdateError]);
 
   const actionLabel = pendingAction === "start" ? "START" : "STOP";
 
   if (!isAuthReady) {
     return (
-      <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
+      <main className="page">
         <section className="panel p-5">
-          <p className="text-sm text-muted">Checking authentication...</p>
+          <p className="text-sm text-muted">{text.checkingAuth}</p>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
-      <header className="panel p-4">
-        <p className="text-xs uppercase tracking-[0.08em] text-muted">P1-FE6</p>
-        <h1 className="mt-1 font-display text-2xl">Bot Control</h1>
-        <p className="mt-2 text-sm text-muted">
-          Dedicated control workflow for bot start/stop with guardrail context.
-        </p>
+    <main className="page">
+      <header className="page-header">
+        <h1 className="mt-1 font-display text-3xl font-black tracking-tight">{text.control}</h1>
+        <p className="mt-2 text-sm font-medium text-muted">{text.sourceControl}</p>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Mode</p>
-          <p className="mt-1 font-display text-2xl">{status?.mode || "-"}</p>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.automatedTradingStatus}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{status?.mode || "-"}</p>
         </article>
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Status</p>
-          <p className={`mt-1 font-display text-2xl ${status?.is_enabled ? "text-safe" : "text-danger"}`}>
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.status}</p>
+          <p className={`mt-1 font-display text-3xl font-black tracking-tight ${status?.is_enabled ? "text-safe" : "text-danger"}`}>
             {status?.status || "-"}
           </p>
         </article>
-        <article className="panel p-4">
-          <p className="text-xs text-muted">Loaded</p>
-          <p className="mt-1 font-display text-2xl">{asTime(lastLoadedAt)}</p>
+        <article className="metric-card">
+          <p className="text-xs text-muted">{text.recentUpdate}</p>
+          <p className="mt-1 font-display text-3xl font-black tracking-tight">{asTime(lastLoadedAt, intlLocale)}</p>
         </article>
       </section>
 
-      <section className="panel p-4">
-        <h2 className="font-display text-lg">Guardrails (Read-only)</h2>
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          <GuardrailCell label="Daily loss basis" value={status?.daily_loss_basis || "-"} />
-          <GuardrailCell label="Max daily loss" value={asPct(status?.max_daily_loss_pct)} />
-          <GuardrailCell label="Max weekly loss" value={asPct(status?.max_weekly_loss_pct)} />
-          <GuardrailCell label="Max monthly loss" value={asPct(status?.max_monthly_loss_pct)} />
-          <GuardrailCell label="Cooldown on halt" value={`${status?.cooldown_hours_on_halt ?? 0}h`} />
-          <GuardrailCell
-            label="Order limits"
-            value={`${status?.max_new_orders_per_day ?? 0}/day · ${status?.max_orders_per_week ?? 0}/week`}
+      <section className="data-panel">
+        <h2 className="font-display text-xl font-black tracking-tight">{text.riskStatus}</h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <SummaryCell label={text.riskStatus} value={status?.halt_reason ? text.attention : text.normal} detail={status?.halt_reason || text.riskSummary} />
+          <SummaryCell label={text.orderLimitStatus} value={text.normal} detail={text.orderLimitSummary} />
+          <SummaryCell
+            label={text.cooldownStatus}
+            value={status?.cooldown_until_kst || status?.cooldown_until_utc ? text.attention : text.noCooldown}
+            detail={
+              status?.cooldown_until_kst || status?.cooldown_until_utc
+                ? `${text.cooldownUntil}: ${asTime(status.cooldown_until_kst || status.cooldown_until_utc, intlLocale)}`
+                : text.cooldownSummary
+            }
           />
-          <GuardrailCell label="Min edge" value={asPct(status?.min_edge_pct)} />
-          <GuardrailCell label="Target exposure" value={asPct(status?.target_exposure_pct)} />
-          <GuardrailCell label="Max total exposure" value={asPct(status?.max_total_exposure_pct)} />
-          <GuardrailCell label="Max per-market exposure" value={asPct(status?.max_per_market_exposure_pct)} />
-          <GuardrailCell label="Halt reason" value={status?.halt_reason || "-"} />
-          <GuardrailCell label="Halted at" value={asTime(status?.halted_at_kst || status?.halted_at_utc)} />
-          <GuardrailCell label="Cooldown until" value={asTime(status?.cooldown_until_kst || status?.cooldown_until_utc)} />
-          <GuardrailCell label="Updated at" value={asTime(status?.updated_at_kst || status?.updated_at_utc)} />
-          <GuardrailCell label="Status source" value={status?.source || "-"} />
-          <GuardrailCell label="Mutation source" value={lastMutation?.source || "-"} />
         </div>
       </section>
 
-      <section className="panel p-4">
-        <h2 className="font-display text-lg">Control Actions</h2>
-        <p className="mt-1 text-sm text-muted">
-          Two-step flow: first request action, then confirm. Actions are executed through authenticated{" "}
-          <code>/api/me/bot/*</code> endpoints.
-        </p>
+      <section className="data-panel">
+        <h2 className="font-display text-xl font-black tracking-tight">{text.controlActions}</h2>
+        <p className="mt-1 text-sm text-muted">{text.controlFlowNote}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
-            className="rounded-md border border-safe/40 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
+            className="btn btn-secondary"
             onClick={() => setPendingAction("start")}
             disabled={isLoading || isMutating || !status || status.is_enabled}
           >
-            Request Start
+            {text.requestStart}
           </button>
           <button
-            className="rounded-md border border-danger/50 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
+            className="btn btn-secondary"
             onClick={() => setPendingAction("stop")}
             disabled={isLoading || isMutating || !status || !status.is_enabled}
           >
-            Request Stop
+            {text.requestStop}
           </button>
-          <button
-            className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
-            onClick={() => void loadStatus()}
-            disabled={isLoading || isMutating}
-          >
-            Reload Status
+          <button className="btn btn-secondary" onClick={() => void loadStatus()} disabled={isLoading || isMutating}>
+            {text.reloadStatus}
           </button>
         </div>
         {pendingAction ? (
-          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3">
             <p className="text-sm text-ink">
-              Pending action: <strong>{actionLabel}</strong>
+              {text.pendingAction}: <strong>{actionLabel}</strong>
             </p>
-            <p className="mt-1 text-xs text-muted">Confirm to apply this action to the bot state.</p>
+            <p className="mt-1 text-xs text-muted">{text.confirmAction}</p>
             <div className="mt-2 flex gap-2">
-              <button
-                className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
-                onClick={() => void applyAction()}
-                disabled={isMutating}
-              >
-                Confirm {actionLabel}
+              <button className="btn btn-secondary" onClick={() => void applyAction()} disabled={isMutating}>
+                {text.confirm} {actionLabel}
               </button>
-              <button
-                className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
-                onClick={() => setPendingAction(null)}
-                disabled={isMutating}
-              >
-                Cancel
+              <button className="btn btn-secondary" onClick={() => setPendingAction(null)} disabled={isMutating}>
+                {text.cancel}
               </button>
             </div>
           </div>
         ) : null}
         {lastMutation ? (
           <p className="mt-3 text-xs text-muted">
-            Last action result: {lastMutation.is_enabled ? "ENABLED" : "DISABLED"} at{" "}
-            {asTime(lastMutation.updated_at_kst || lastMutation.updated_at_utc)}
+            {text.lastActionResult}: {lastMutation.is_enabled ? text.enabled : text.disabled} /{" "}
+            {asTime(lastMutation.updated_at_kst || lastMutation.updated_at_utc, intlLocale)}
           </p>
         ) : null}
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
@@ -200,11 +173,12 @@ export default function ControlPage() {
   );
 }
 
-function GuardrailCell({ label, value }: { label: string; value: string }) {
+function SummaryCell({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
-    <div className="rounded-xl border border-black/10 p-3">
+    <div className="rounded-2xl border border-line bg-[#f8fafc] p-3">
       <p className="text-xs text-muted">{label}</p>
-      <p className="mt-1 font-display text-base break-words">{value}</p>
+      <p className="mt-1 break-words font-display text-base font-black tracking-tight">{value}</p>
+      <p className="mt-2 text-xs font-medium text-muted">{detail}</p>
     </div>
   );
 }

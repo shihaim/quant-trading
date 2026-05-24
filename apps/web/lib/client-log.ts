@@ -1,3 +1,5 @@
+import { toUserFacingErrorMessage } from "./user-facing-error";
+
 export type ClientLogLevel = "INFO" | "WARNING" | "ERROR";
 
 type ClientLogInput = {
@@ -21,5 +23,5 @@ export async function sendClientLog(input: ClientLogInput): Promise<void> {
 }
 
 export function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return toUserFacingErrorMessage(error);
 }

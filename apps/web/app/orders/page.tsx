@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { opsApi } from "../../lib/api";
 import { asTime, short } from "../../lib/format";
+import { useLocale } from "../../lib/locale";
 import type { MeOrdersResponse } from "../../lib/types";
 import { useAuthGuard } from "../../lib/use-auth-guard";
 
@@ -12,6 +13,7 @@ const LIMIT_OPTIONS = [25, 50, 100, 200] as const;
 
 export default function OrdersPage() {
   const { accessToken, isAuthReady, handleAuthError } = useAuthGuard();
+  const { intlLocale, text } = useLocale();
   const [stateFilter, setStateFilter] = useState<(typeof ORDER_STATES)[number]>("ALL");
   const [limit, setLimit] = useState<number>(50);
   const [payload, setPayload] = useState<MeOrdersResponse | null>(null);
@@ -38,12 +40,12 @@ export default function OrdersPage() {
       if (handleAuthError(requestError)) {
         return;
       }
-      setError(requestError instanceof Error ? requestError.message : "failed to load orders");
+      setError(text.ordersLoadError);
       setPayload(null);
     } finally {
       setIsLoading(false);
     }
-  }, [accessToken, handleAuthError, isAuthReady, limit, stateFilter]);
+  }, [accessToken, handleAuthError, isAuthReady, limit, stateFilter, text.ordersLoadError]);
 
   useEffect(() => {
     if (!isAuthReady || !accessToken) return;
@@ -54,44 +56,41 @@ export default function OrdersPage() {
 
   if (!isAuthReady) {
     return (
-      <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
+      <main className="page">
         <section className="panel p-5">
-          <p className="text-sm text-muted">Checking authentication...</p>
+          <p className="text-sm text-muted">{text.checkingAuth}</p>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
-      <header className="panel p-4">
-        <p className="text-xs uppercase tracking-[0.08em] text-muted">P1-FE3</p>
-        <h1 className="mt-1 font-display text-2xl">Orders</h1>
-        <p className="mt-2 text-sm text-muted">
-          User-scoped order state view from <code>GET /api/me/orders</code>.
-        </p>
+    <main className="page">
+      <header className="page-header">
+        <h1 className="mt-1 font-display text-3xl font-black tracking-tight">{text.orders}</h1>
+        <p className="mt-2 text-sm font-medium text-muted">{text.sourceOrders}</p>
       </header>
 
-      <section className="panel p-4">
+      <section className="page-toolbar">
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-sm text-muted">
-            State
+            {text.state}
             <select
-              className="ml-2 rounded-md border border-black/10 bg-white px-2 py-1 text-sm text-ink"
+              className="ml-2 form-control inline-block w-auto py-1.5"
               value={stateFilter}
               onChange={(event) => setStateFilter(event.target.value as (typeof ORDER_STATES)[number])}
             >
               {ORDER_STATES.map((state) => (
                 <option key={state} value={state}>
-                  {state === "ALL" ? "ALL (recent)" : state}
+                  {state === "ALL" ? text.allRecent : state}
                 </option>
               ))}
             </select>
           </label>
           <label className="text-sm text-muted">
-            Limit
+            {text.limit}
             <select
-              className="ml-2 rounded-md border border-black/10 bg-white px-2 py-1 text-sm text-ink"
+              className="ml-2 form-control inline-block w-auto py-1.5"
               value={limit}
               onChange={(event) => setLimit(Number(event.target.value))}
             >
@@ -103,69 +102,48 @@ export default function OrdersPage() {
             </select>
           </label>
           <button
-            className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm transition-colors hover:bg-black/5"
+            className="btn btn-secondary min-h-9"
             onClick={() => void loadOrders()}
             disabled={isLoading}
           >
-            Reload
+            {text.refresh}
           </button>
-          <p className="text-xs text-muted">Count: {payload?.count ?? 0}</p>
-          <p className="text-xs text-muted">Loaded: {asTime(lastLoadedAt)}</p>
+          <p className="text-xs text-muted">{payload?.count ?? 0}{text.itemCount}</p>
+          <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
         </div>
-        {payload?.scope ? (
-          <p className="mt-2 text-xs text-muted">
-            Scope: {payload.scope.mode} / user {payload.scope.user_id}
-          </p>
-        ) : null}
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
       </section>
 
-      <section className="panel overflow-auto p-2">
+      <section className="data-panel overflow-auto">
         <table className="min-w-[1180px] w-full border-collapse text-sm">
           <thead>
             <tr className="text-left text-muted">
-              <th className="border-b border-black/10 p-2">Updated</th>
-              <th className="border-b border-black/10 p-2">Market</th>
-              <th className="border-b border-black/10 p-2">Side</th>
-              <th className="border-b border-black/10 p-2">Intent</th>
-              <th className="border-b border-black/10 p-2">State</th>
-              <th className="border-b border-black/10 p-2">Error Class</th>
-              <th className="border-b border-black/10 p-2">Last Error</th>
-              <th className="border-b border-black/10 p-2">Client Order ID</th>
-              <th className="border-b border-black/10 p-2">Upbit Identifier</th>
-              <th className="border-b border-black/10 p-2">Upbit UUID</th>
+              <th className="border-b border-black/10 p-2">{text.updated}</th>
+              <th className="border-b border-black/10 p-2">{text.market}</th>
+              <th className="border-b border-black/10 p-2">{text.side}</th>
+              <th className="border-b border-black/10 p-2">{text.intent}</th>
+              <th className="border-b border-black/10 p-2">{text.state}</th>
+              <th className="border-b border-black/10 p-2">{text.orderNote}</th>
             </tr>
           </thead>
           <tbody>
             {rows.length ? (
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td className="border-b border-black/10 p-2">{asTime(row.updated_at_kst || row.updated_at_utc)}</td>
+                  <td className="border-b border-black/10 p-2">{asTime(row.updated_at_kst || row.updated_at_utc, intlLocale)}</td>
                   <td className="border-b border-black/10 p-2">{row.market}</td>
                   <td className="border-b border-black/10 p-2">{row.side || "-"}</td>
                   <td className="border-b border-black/10 p-2">{row.intent || "-"}</td>
                   <td className="border-b border-black/10 p-2">{row.state}</td>
-                  <td className="border-b border-black/10 p-2" title={row.error_class || ""}>
-                    {short(row.error_class, 36)}
-                  </td>
-                  <td className="border-b border-black/10 p-2" title={row.last_error || ""}>
-                    {short(row.last_error, 64)}
-                  </td>
-                  <td className="border-b border-black/10 p-2" title={row.client_order_id}>
-                    {short(row.client_order_id, 36)}
-                  </td>
-                  <td className="border-b border-black/10 p-2" title={row.upbit_identifier || ""}>
-                    {short(row.upbit_identifier, 36)}
-                  </td>
-                  <td className="border-b border-black/10 p-2" title={row.upbit_uuid || ""}>
-                    {short(row.upbit_uuid, 36)}
+                  <td className="border-b border-black/10 p-2" title={row.last_error || row.error_class || ""}>
+                    {short(row.last_error || row.error_class, 64)}
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={10} className="border-b border-black/10 p-3 text-muted">
-                  {isLoading ? "Loading..." : "No orders found for current filter."}
+                <td colSpan={6} className="border-b border-black/10 p-3 text-muted">
+                  {isLoading ? text.reloading : text.noOrders}
                 </td>
               </tr>
             )}

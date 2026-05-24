@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AdminAuditLogViewer } from "../../../components/admin-audit-log-viewer";
 import { AdminUsersRuntimeTable } from "../../../components/admin-users-runtime-table";
 import { opsApi } from "../../../lib/api";
+import { toUserFacingErrorMessage } from "../../../lib/user-facing-error";
 import { useAuthGuard } from "../../../lib/use-auth-guard";
 
 export default function AdminOpsPage() {
@@ -42,7 +43,7 @@ export default function AdminOpsPage() {
           return;
         }
         setIsAllowed(false);
-        setError(requestError instanceof Error ? requestError.message : "failed to verify admin role");
+        setError(toUserFacingErrorMessage(requestError, "admin"));
       } finally {
         if (!disposed) {
           setIsVerifyingRole(false);
