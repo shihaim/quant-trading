@@ -205,7 +205,7 @@ Upbit mapping:
 
 Current important contracts:
 
-- `/api/me/*`: authenticated user's credentials, orders, PnL, metrics, bot status/start/stop.
+- `/api/me/*`: authenticated user's overview, credentials, orders, PnL, metrics, bot status/start/stop.
 - `/api/admin/users/{user_id}/*`: admin per-user reads and operations.
 - `GET /api/admin/users/runtime-summary`: aggregate admin runtime summary.
 - `GET /api/admin/audit/logs`: admin audit query with bounded filters.

@@ -4,26 +4,33 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { opsApi } from "../../lib/api";
+import { asInt, asKrw, asPct, asTime } from "../../lib/format";
 import { useLocale } from "../../lib/locale";
-import type { AuthUserIdentity } from "../../lib/types";
+import type { AuthUserIdentity, MeOverviewResponse } from "../../lib/types";
 import { useAuthGuard } from "../../lib/use-auth-guard";
 
 export default function DashboardPage() {
   const { accessToken, isAuthReady, handleAuthError } = useAuthGuard();
-  const { text } = useLocale();
+  const { intlLocale, text } = useLocale();
   const [user, setUser] = useState<AuthUserIdentity | null>(null);
+  const [overview, setOverview] = useState<MeOverviewResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const loadUser = useCallback(async () => {
+  const loadDashboard = useCallback(async () => {
     if (!isAuthReady || !accessToken) {
       setUser(null);
+      setOverview(null);
       return;
     }
     setIsLoading(true);
     try {
-      const result = await opsApi.getMe({ accessToken });
-      setUser(result.user);
+      const [identity, nextOverview] = await Promise.all([
+        opsApi.getMe({ accessToken }),
+        opsApi.getMyOverview({ accessToken }),
+      ]);
+      setUser(identity.user);
+      setOverview(nextOverview);
       setError("");
     } catch (requestError) {
       if (handleAuthError(requestError)) {
@@ -31,6 +38,7 @@ export default function DashboardPage() {
       }
       setError(text.userLoadError);
       setUser(null);
+      setOverview(null);
     } finally {
       setIsLoading(false);
     }
@@ -38,8 +46,8 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!isAuthReady || !accessToken) return;
-    void loadUser();
-  }, [isAuthReady, accessToken, loadUser]);
+    void loadDashboard();
+  }, [isAuthReady, accessToken, loadDashboard]);
 
   if (!isAuthReady) {
     return (
@@ -57,29 +65,61 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{text.dashboard}</p>
-            <h1 className="mt-2 font-display text-4xl font-black tracking-tight text-ink">{text.welcome}</h1>
+            <h1 className="mt-2 font-display text-4xl font-black tracking-tight text-ink">{text.accountOverview}</h1>
             <p className="mt-3 text-sm font-medium text-muted">
+              {text.overviewIntro}
+            </p>
+            <p className="mt-2 text-xs font-bold text-muted">
               {text.signedInAs} <strong className="text-ink">{user?.email || "-"}</strong>
-              {user?.display_name ? ` (${user.display_name})` : ""}.
+              {user?.display_name ? ` (${user.display_name})` : ""}
             </p>
           </div>
           <div className="rounded-2xl border border-line bg-[#f8fafc] p-4">
-            <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{text.role}</p>
-            <p className="mt-1 text-3xl font-black tracking-tight text-ink">{user?.is_admin ? text.admin : text.user}</p>
+            <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{text.recentUpdate}</p>
+            <p className="mt-1 text-xl font-black tracking-tight text-ink">
+              {asTime(overview?.last_updated_kst || overview?.last_updated_utc, intlLocale)}
+            </p>
           </div>
         </div>
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <OverviewCard
+          label={text.tradingHealth}
+          value={overview?.bot.status || "-"}
+          detail={overview?.bot.halt_reason || (overview?.bot.is_enabled ? text.enabled : text.disabled)}
+          tone={overview?.bot.halt_reason ? "danger" : overview?.bot.is_enabled ? "safe" : "muted"}
+        />
+        <OverviewCard
+          label={text.todayPnl}
+          value={asPct(overview?.today_pnl.daily_pnl_pct, intlLocale)}
+          detail={asKrw(overview?.today_pnl.daily_pnl_abs, intlLocale)}
+          tone={(overview?.today_pnl.daily_pnl_abs ?? 0) < 0 ? "danger" : "safe"}
+        />
+        <OverviewCard
+          label={text.upbitAuthStatus}
+          value={overview?.credential.has_credentials && overview.credential.is_valid ? text.connected : text.attention}
+          detail={overview?.credential.has_credentials ? overview.credential.exchange : text.notConnected}
+          tone={overview?.credential.has_credentials && overview.credential.is_valid ? "safe" : "danger"}
+        />
+        <OverviewCard
+          label={text.reviewOrders}
+          value={asInt(overview?.orders.needs_review_count, intlLocale)}
+          detail={`${text.openOrders}: ${asInt(overview?.orders.open_count, intlLocale)}`}
+          tone={(overview?.orders.needs_review_count ?? 0) > 0 ? "danger" : "muted"}
+        />
       </section>
 
       <section className="data-panel p-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{text.workspace}</p>
-            <h2 className="mt-1 font-display text-xl font-black tracking-tight">{text.userViews}</h2>
+            <h2 className="mt-1 font-display text-xl font-black tracking-tight">{text.secondaryActions}</h2>
           </div>
           <button
             className="btn btn-primary"
-            onClick={() => void loadUser()}
+            onClick={() => void loadDashboard()}
             disabled={isLoading}
           >
             {isLoading ? text.reloading : text.refresh}
@@ -105,5 +145,26 @@ function NavButton({ href, label }: { href: string; label: string }) {
     >
       {label}
     </Link>
+  );
+}
+
+function OverviewCard({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: "safe" | "danger" | "muted";
+}) {
+  const colorClass = tone === "safe" ? "text-safe" : tone === "danger" ? "text-danger" : "text-ink";
+  return (
+    <article className="metric-card">
+      <p className="text-xs font-bold text-muted">{label}</p>
+      <p className={`mt-2 break-words font-display text-3xl font-black tracking-tight ${colorClass}`}>{value}</p>
+      <p className="mt-2 text-sm font-bold text-muted">{detail || "-"}</p>
+    </article>
   );
 }

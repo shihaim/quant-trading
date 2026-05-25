@@ -432,6 +432,24 @@ def create_ops_handler(
                         credential_service.get_exchange_credential_status(user=user, exchange="UPBIT"),
                     )
                     return
+                if parsed.path == "/api/me/overview":
+                    user = self._require_authenticated_user(session=session)
+                    if user is None:
+                        return
+                    if self._enforce_request_budget(
+                        session=session,
+                        user=user,
+                        scope=SCOPE_ME,
+                        source=parsed.path,
+                    ) is None:
+                        return
+                    me_service = MeReadService(
+                        session=session,
+                        trade_mode=trade_mode,
+                        encryption_key=settings.ops_api_credentials_encryption_key,
+                    )
+                    self._write_json(200, me_service.get_overview(user=user))
+                    return
                 if parsed.path == "/api/me/orders":
                     user = self._require_authenticated_user(session=session)
                     if user is None:

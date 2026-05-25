@@ -252,6 +252,46 @@ export interface AuthTokenResponse {
   user: AuthUserIdentity;
 }
 
+export interface MeOverviewResponse {
+  generated_at_utc: string | null;
+  generated_at_kst: string | null;
+  last_updated_utc: string | null;
+  last_updated_kst: string | null;
+  trade_mode: string;
+  bot: {
+    is_enabled: boolean;
+    status: string;
+    last_tick_utc: string | null;
+    last_tick_kst: string | null;
+    halt_reason: string | null;
+    cooldown_until_utc: string | null;
+    message: string | null;
+  };
+  credential: {
+    exchange: string;
+    has_credentials: boolean;
+    is_valid: boolean;
+    key_version: string | null;
+    access_key_masked: string | null;
+    updated_at_utc: string | null;
+    updated_at_kst: string | null;
+  };
+  today_pnl: {
+    date_utc: string;
+    last_equity: number;
+    daily_pnl_abs: number;
+    daily_pnl_pct: number;
+    realized_daily_abs: number;
+    realized_daily_pct: number;
+  };
+  orders: {
+    needs_review_count: number;
+    open_count: number;
+    partial_count: number;
+    in_flight_count: number;
+  };
+}
+
 export interface ApiScope {
   mode: string;
   user_id: number;

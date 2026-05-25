@@ -53,6 +53,7 @@ python -m trader.app.ops_api --host 127.0.0.1 --port 8080
 
 사용자 스코프 조회:
 
+- `GET /api/me/overview` (`Authorization: Bearer <token>` 필요)
 - `GET /api/me/orders?state=ERROR_NEEDS_REVIEW&limit=50` (`Authorization: Bearer <token>` 필요)
 - `GET /api/me/pnl/daily?days=30&tz=UTC` (`Authorization: Bearer <token>` 필요)
 - `GET /api/me/metrics/trade?limit=200` (`Authorization: Bearer <token>` 필요)

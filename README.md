@@ -53,6 +53,7 @@ User credential path:
 
 User-scoped reads:
 
+- `GET /api/me/overview` (requires `Authorization: Bearer <token>`)
 - `GET /api/me/orders?state=ERROR_NEEDS_REVIEW&limit=50` (requires `Authorization: Bearer <token>`)
 - `GET /api/me/pnl/daily?days=30&tz=UTC` (requires `Authorization: Bearer <token>`)
 - `GET /api/me/metrics/trade?limit=200` (requires `Authorization: Bearer <token>`)

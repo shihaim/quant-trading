@@ -244,6 +244,26 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
         )
         assert status == 200
         assert payload["count"] >= 1
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/me/overview",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert status == 200
+        assert payload["trade_mode"] == "PAPER"
+        assert payload["bot"]["is_enabled"] is True
+        assert payload["credential"]["has_credentials"] is True
+        assert payload["credential"]["is_valid"] is True
+        assert payload["today_pnl"]["daily_pnl_abs"] == 100.0
+        assert payload["orders"]["open_count"] == 1
+        assert payload["orders"]["needs_review_count"] == 0
+        assert payload["last_updated_utc"] is not None
+        assert "source" not in payload
+        assert "scope" not in payload
+        assert "user_id" not in payload
+
         status, payload = _request_json(
             port=server.server_port,
             method="GET",
@@ -302,6 +322,17 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
         )
         assert status == 403
         assert payload["error"] == "credentials_required"
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="GET",
+            path="/api/me/overview",
+            headers={"Authorization": f"Bearer {token2}"},
+        )
+        assert status == 200
+        assert payload["credential"]["has_credentials"] is False
+        assert payload["orders"]["open_count"] == 0
+        assert payload["today_pnl"]["daily_pnl_abs"] == 0.0
 
         status, payload = _request_json(
             port=server.server_port,

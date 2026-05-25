@@ -22,6 +22,18 @@ class UserScopeError(ValueError):
         self.message = message
 
 
+def _parse_iso_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 class MeReadService:
     """Authenticated user-scoped read APIs."""
 
@@ -41,6 +53,24 @@ class MeReadService:
                 UserExchangeCredential.exchange == "UPBIT",
             )
         ).scalar_one_or_none()
+
+    def _credential_status(self, *, user: User) -> dict:
+        service = UserCredentialService(
+            session=self.session,
+            encryption_key=self.encryption_key,
+            active_key_version=settings.ops_api_credentials_active_key_version,
+            keyring_json=settings.ops_api_credentials_keyring_json,
+        )
+        status = service.get_exchange_credential_status(user=user, exchange="UPBIT")
+        return {
+            "exchange": status.get("exchange"),
+            "has_credentials": bool(status.get("has_credentials")),
+            "is_valid": bool(status.get("is_valid")),
+            "key_version": status.get("key_version"),
+            "access_key_masked": status.get("access_key_masked"),
+            "updated_at_utc": status.get("updated_at_utc"),
+            "updated_at_kst": iso_kst(_parse_iso_utc(status.get("updated_at_utc"))),
+        }
 
     def _assert_user_credential_ready(self, *, user: User) -> None:
         row = self._load_upbit_credential(user_id=user.id)
@@ -68,6 +98,43 @@ class MeReadService:
     def list_trade_metrics(self, *, user: User, limit: int = 200) -> dict:
         self._assert_user_credential_ready(user=user)
         return self._ops_for_user(user_id=user.id).list_trade_metrics(limit=limit)
+
+    def get_overview(self, *, user: User) -> dict:
+        summary = self._ops_for_user(user_id=user.id).get_summary(metrics_limit=50, needs_review_limit=5)
+        credential = self._credential_status(user=user)
+        orders = summary["orders"]
+        counts = orders["counts"]
+        return {
+            "generated_at_utc": summary["server_time_utc"],
+            "generated_at_kst": summary["server_time_kst"],
+            "last_updated_utc": summary["server_time_utc"],
+            "last_updated_kst": summary["server_time_kst"],
+            "trade_mode": summary["trade_mode"],
+            "bot": {
+                "is_enabled": bool(summary["bot"]["is_enabled"]),
+                "status": summary["bot"]["status"],
+                "last_tick_utc": summary["bot"]["last_tick_utc"],
+                "last_tick_kst": summary["bot"]["last_tick_kst"],
+                "halt_reason": summary["halt"]["reason"],
+                "cooldown_until_utc": summary["halt"]["cooldown_until_utc"],
+                "message": summary["halt"]["message"],
+            },
+            "credential": credential,
+            "today_pnl": {
+                "date_utc": summary["today_pnl"]["date_utc"],
+                "last_equity": summary["today_pnl"]["last_equity"],
+                "daily_pnl_abs": summary["today_pnl"]["daily_pnl_abs"],
+                "daily_pnl_pct": summary["today_pnl"]["daily_pnl_pct"],
+                "realized_daily_abs": summary["today_pnl"]["realized_daily_abs"],
+                "realized_daily_pct": summary["today_pnl"]["realized_daily_pct"],
+            },
+            "orders": {
+                "needs_review_count": int(counts.get("ERROR_NEEDS_REVIEW", 0)),
+                "open_count": int(counts.get("OPEN", 0)),
+                "partial_count": int(counts.get("PARTIAL", 0)),
+                "in_flight_count": int(counts.get("IN_FLIGHT", 0)),
+            },
+        }
 
     def get_bot_status(self, *, user: User) -> dict:
         self._assert_user_credential_ready(user=user)

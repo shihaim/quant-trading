@@ -6,6 +6,7 @@ import type {
   AuthUserIdentity,
   MeBotMutateResponse,
   MeBotStatusResponse,
+  MeOverviewResponse,
   MeOrdersResponse,
   MePnlDailyResponse,
   MeTradeMetricsResponse,
@@ -103,6 +104,8 @@ export const opsApi = {
       body: JSON.stringify(payload)
     }),
   getMe: ({ accessToken }: { accessToken: string }) => request<{ user: AuthUserIdentity }>("/api/me", undefined, accessToken),
+  getMyOverview: ({ accessToken }: { accessToken: string }) =>
+    request<MeOverviewResponse>("/api/me/overview", undefined, accessToken),
   getSummary: ({ accessToken }: { accessToken: string }) => request<OpsSummary>("/api/ops/summary", undefined, accessToken),
   getAdminUsersRuntimeSummary: ({ accessToken, limit }: { accessToken: string; limit?: number }) =>
     request<AdminRuntimeSummaryResponse>(
