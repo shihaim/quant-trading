@@ -89,30 +89,36 @@ export default function ExecutionPage() {
       </header>
 
       <section className="page-toolbar">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm text-muted">
-            {text.limit}
-            <select
-              className="ml-2 form-control inline-block w-auto py-1.5"
-              value={limit}
-              onChange={(event) => setLimit(Number(event.target.value))}
+        <div className="toolbar-row">
+          <div className="toolbar-filters">
+            <label className="text-sm text-muted">
+              {text.limit}
+              <select
+                className="ml-2 form-control inline-block w-auto py-1.5"
+                value={limit}
+                onChange={(event) => setLimit(Number(event.target.value))}
+              >
+                {LIMIT_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="toolbar-actions">
+            <button
+              className="btn btn-secondary min-h-9"
+              onClick={() => void loadMetrics()}
+              disabled={isLoading}
             >
-              {LIMIT_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="btn btn-secondary min-h-9"
-            onClick={() => void loadMetrics()}
-            disabled={isLoading}
-          >
-            {text.refresh}
-          </button>
-          <p className="text-xs text-muted">{payload?.count ?? 0}{text.itemCount}</p>
-          <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
+              {text.refresh}
+            </button>
+            <div className="toolbar-meta">
+              <p className="text-xs text-muted">{payload?.count ?? 0}{text.itemCount}</p>
+              <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
+            </div>
+          </div>
         </div>
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
       </section>
@@ -137,7 +143,17 @@ export default function ExecutionPage() {
       </section>
 
       <section className="data-panel overflow-auto">
-        <table className="min-w-[1100px] w-full border-collapse text-sm">
+        <table className="data-table data-table-execution text-sm">
+          <colgroup>
+            <col className="w-[180px]" />
+            <col className="w-[130px]" />
+            <col className="w-[90px]" />
+            <col className="w-[150px]" />
+            <col className="w-[130px]" />
+            <col className="w-[140px]" />
+            <col className="w-[150px]" />
+            <col className="w-[130px]" />
+          </colgroup>
           <thead>
             <tr className="text-left text-muted">
               <th className="border-b border-black/10 p-2">{text.executed}</th>
@@ -158,10 +174,10 @@ export default function ExecutionPage() {
                   <td className="border-b border-black/10 p-2">{row.market || "-"}</td>
                   <td className="border-b border-black/10 p-2">{row.side || "-"}</td>
                   <td className="border-b border-black/10 p-2">{row.intent || "-"}</td>
-                  <td className="border-b border-black/10 p-2">{asPct(row.slippage_pct, intlLocale)}</td>
-                  <td className="border-b border-black/10 p-2">{asDecimal(row.fee_abs, intlLocale)}</td>
-                  <td className="border-b border-black/10 p-2">{asInt(row.time_to_fill_ms, intlLocale)}</td>
-                  <td className="border-b border-black/10 p-2">{asInt(row.partial_fill_count, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asPct(row.slippage_pct, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asDecimal(row.fee_abs, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asInt(row.time_to_fill_ms, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asInt(row.partial_fill_count, intlLocale)}</td>
                 </tr>
               ))
             ) : (

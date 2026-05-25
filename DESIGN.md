@@ -162,6 +162,24 @@
 
 ## Tables And Data
 
+- Use explicit table classes instead of relying on browser auto layout.
+  - User-facing tables use `.data-table` plus a page-specific class such as `.data-table-orders`, `.data-table-pnl`, or `.data-table-execution`.
+  - Admin tables use `.admin-table` plus a page-specific class such as `.admin-table-runtime` or `.admin-table-audit`.
+- Declare column intent with `colgroup` in each table.
+  - Date/time columns get fixed widths.
+  - Market, side, intent, status, and action columns get predictable fixed widths.
+  - Money, percentage, count, and latency body cells use `.table-cell-number` and right alignment.
+  - Column headers stay left-aligned on every table, including numeric columns.
+  - Long notes, errors, emails, metadata labels, and action names use `.table-truncate` with a `title` attribute for the full value.
+- User tables should optimize for calm scanning.
+  - Keep row height comfortable.
+  - Keep status badges in a stable fixed-width column.
+  - Give explanatory columns, such as order notes, the remaining width without letting them move other columns.
+- Admin tables should optimize for dense operations.
+  - Keep horizontal scrolling inside `.admin-table-wrap`.
+  - Do not let long emails, errors, or metadata expand the table unexpectedly.
+  - It is acceptable for admin tables to expose operational IDs, but those fields must stay out of user-facing pages.
+
 - 테이블은 카드 안에서만 보여준다.
 - 페이지 전체가 가로로 밀리는 대신 테이블 영역 자체가 스크롤되어야 한다.
 - 행 hover는 `#f8fafc`로 아주 조용하게 처리한다.

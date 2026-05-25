@@ -268,7 +268,15 @@ export function AdminAuditLogViewer({
       {isLoading && !payload ? <p className="mt-4 text-sm font-bold text-muted">감사 로그를 불러오는 중입니다.</p> : null}
 
       <div className="admin-table-wrap mt-5">
-        <table className="admin-table min-w-[1180px]">
+        <table className="admin-table admin-table-audit">
+          <colgroup>
+            <col className="w-[180px]" />
+            <col className="w-[190px]" />
+            <col className="w-[190px]" />
+            <col className="w-[260px]" />
+            <col className="w-[120px]" />
+            <col className="w-[240px]" />
+          </colgroup>
           <thead>
             <tr>
               <th>시각</th>
@@ -287,15 +295,15 @@ export function AdminAuditLogViewer({
                   <p className="text-xs text-muted">id={item.id}</p>
                 </td>
                 <td>
-                  <p className="font-bold">{item.action}</p>
+                  <p className="table-truncate font-bold" title={item.action}>{item.action}</p>
                 </td>
                 <td>
-                  <p className="font-bold">{item.target_type}</p>
+                  <p className="table-truncate font-bold" title={item.target_type}>{item.target_type}</p>
                   <p className="text-xs text-muted">target_id={item.target_id || "-"}</p>
                   <p className="text-xs text-muted">target_user_id={item.target_user_id || "-"}</p>
                 </td>
                 <td>
-                  <p className="font-bold">{item.actor_email || "-"}</p>
+                  <p className="table-truncate font-bold" title={item.actor_email || "-"}>{item.actor_email || "-"}</p>
                   <p className="text-xs text-muted">user_id={item.actor_user_id || "-"}</p>
                 </td>
                 <td>

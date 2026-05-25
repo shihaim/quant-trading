@@ -69,6 +69,44 @@ body {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.025);
 }
 
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toolbar-filters,
+.toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.toolbar-actions {
+  margin-left: auto;
+}
+
+.toolbar-meta {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .toolbar-row {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .toolbar-actions {
+    margin-left: 0;
+  }
+}
+
 .metric-card {
   min-width: 0;
   border: 1px solid var(--line);
@@ -117,10 +155,20 @@ body {
 }
 
 .admin-table {
-  width: max-content;
   min-width: 100%;
   border-collapse: collapse;
   font-size: 0.82rem;
+  table-layout: fixed;
+}
+
+.admin-table-runtime {
+  width: max(100%, 1320px);
+  min-width: 1320px;
+}
+
+.admin-table-audit {
+  width: max(100%, 1180px);
+  min-width: 1180px;
 }
 
 .admin-table thead tr {
@@ -237,8 +285,52 @@ table {
 }
 
 .data-panel table {
-  width: max-content;
   min-width: 100%;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.data-table-orders {
+  width: max(100%, 1180px);
+  min-width: 1180px;
+}
+
+.data-table-pnl {
+  width: max(100%, 1200px);
+  min-width: 1200px;
+}
+
+.data-table-execution {
+  width: max(100%, 1100px);
+  min-width: 1100px;
+}
+
+.data-panel .data-table-orders {
+  min-width: 1180px;
+}
+
+.data-panel .data-table-pnl {
+  min-width: 1200px;
+}
+
+.data-panel .data-table-execution {
+  min-width: 1100px;
+}
+
+.table-cell-number {
+  text-align: right;
+}
+
+.table-truncate {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 thead tr {
@@ -265,6 +357,10 @@ select {
 th,
 td {
   white-space: nowrap;
+}
+
+th {
+  text-align: left;
 }
 
 button,

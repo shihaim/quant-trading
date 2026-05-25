@@ -210,7 +210,16 @@ export function AdminUsersRuntimeTable({
         {actionMessage ? <p className="mb-3 rounded-xl border border-line bg-[#f8fafc] p-3 text-xs text-muted">{actionMessage}</p> : null}
 
         <div className="admin-table-wrap">
-          <table className="admin-table min-w-[1180px]">
+          <table className="admin-table admin-table-runtime">
+            <colgroup>
+              <col className="w-[260px]" />
+              <col className="w-[170px]" />
+              <col className="w-[200px]" />
+              <col className="w-[180px]" />
+              <col className="w-[260px]" />
+              <col className="w-[190px]" />
+              <col className="w-[220px]" />
+            </colgroup>
             <thead>
               <tr className="text-left text-muted">
                 <th>사용자</th>
@@ -229,8 +238,8 @@ export function AdminUsersRuntimeTable({
                 return (
                   <tr key={item.user_id} className={toRowTone(item)}>
                     <td>
-                      <p className="font-black text-ink">{item.display_name || item.email}</p>
-                      <p className="text-xs text-muted">{item.email}</p>
+                      <p className="table-truncate font-black text-ink" title={item.display_name || item.email}>{item.display_name || item.email}</p>
+                      <p className="table-truncate text-xs text-muted" title={item.email}>{item.email}</p>
                       <p className="text-xs text-muted">user_id {item.user_id} / {item.role}</p>
                     </td>
                     <td>
@@ -252,7 +261,7 @@ export function AdminUsersRuntimeTable({
                     </td>
                     <td>
                       {item.runtime.last_error ? (
-                        <p className="max-w-[260px] whitespace-normal text-xs font-bold text-danger">{short(item.runtime.last_error, 120)}</p>
+                        <p className="table-truncate text-xs font-bold text-danger" title={item.runtime.last_error}>{short(item.runtime.last_error, 160)}</p>
                       ) : (
                         <span className={badgeClass("green")}>없음</span>
                       )}

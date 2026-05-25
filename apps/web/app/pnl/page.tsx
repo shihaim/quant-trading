@@ -70,30 +70,36 @@ export default function PnlPage() {
       </header>
 
       <section className="page-toolbar">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm text-muted">
-            {text.days}
-            <select
-              className="ml-2 form-control inline-block w-auto py-1.5"
-              value={days}
-              onChange={(event) => setDays(Number(event.target.value))}
+        <div className="toolbar-row">
+          <div className="toolbar-filters">
+            <label className="text-sm text-muted">
+              {text.days}
+              <select
+                className="ml-2 form-control inline-block w-auto py-1.5"
+                value={days}
+                onChange={(event) => setDays(Number(event.target.value))}
+              >
+                {DAYS_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="toolbar-actions">
+            <button
+              className="btn btn-secondary min-h-9"
+              onClick={() => void loadPnl()}
+              disabled={isLoading}
             >
-              {DAYS_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="btn btn-secondary min-h-9"
-            onClick={() => void loadPnl()}
-            disabled={isLoading}
-          >
-            {text.refresh}
-          </button>
-          <p className="text-xs text-muted">{payload?.items.length ?? 0}{text.itemCount}</p>
-          <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
+              {text.refresh}
+            </button>
+            <div className="toolbar-meta">
+              <p className="text-xs text-muted">{payload?.items.length ?? 0}{text.itemCount}</p>
+              <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
+            </div>
+          </div>
         </div>
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
       </section>
@@ -117,7 +123,17 @@ export default function PnlPage() {
       </section>
 
       <section className="data-panel overflow-auto">
-        <table className="min-w-[980px] w-full border-collapse text-sm">
+        <table className="data-table data-table-pnl text-sm">
+          <colgroup>
+            <col className="w-[130px]" />
+            <col className="w-[165px]" />
+            <col className="w-[165px]" />
+            <col className="w-[155px]" />
+            <col className="w-[120px]" />
+            <col className="w-[165px]" />
+            <col className="w-[130px]" />
+            <col className="w-[170px]" />
+          </colgroup>
           <thead>
             <tr className="text-left text-muted">
               <th className="border-b border-black/10 p-2">{text.date}</th>
@@ -135,12 +151,12 @@ export default function PnlPage() {
               payload.items.map((row) => (
                 <tr key={`${row.date}-${row.updated_at_utc || ""}`}>
                   <td className="border-b border-black/10 p-2">{row.date}</td>
-                  <td className="border-b border-black/10 p-2">{asKrw(row.start_equity, intlLocale)}</td>
-                  <td className="border-b border-black/10 p-2">{asKrw(row.last_equity, intlLocale)}</td>
-                  <td className="border-b border-black/10 p-2">{asKrw(row.daily_pnl_abs, intlLocale)}</td>
-                  <td className="border-b border-black/10 p-2">{asPct(row.daily_pnl_pct, intlLocale)}</td>
-                  <td className="border-b border-black/10 p-2">{asKrw(row.realized_daily_abs, intlLocale)}</td>
-                  <td className="border-b border-black/10 p-2">{asPct(row.realized_daily_pct, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asKrw(row.start_equity, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asKrw(row.last_equity, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asKrw(row.daily_pnl_abs, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asPct(row.daily_pnl_pct, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asKrw(row.realized_daily_abs, intlLocale)}</td>
+                  <td className="table-cell-number border-b border-black/10 p-2">{asPct(row.realized_daily_pct, intlLocale)}</td>
                   <td className="border-b border-black/10 p-2">{asTime(row.updated_at_kst || row.updated_at_utc, intlLocale)}</td>
                 </tr>
               ))

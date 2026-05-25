@@ -96,57 +96,71 @@ export default function OrdersPage() {
       </header>
 
       <section className="page-toolbar">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm text-muted">
-            {text.state}
-            <select
-              className="ml-2 form-control inline-block w-auto py-1.5"
-              value={stateFilter}
-              onChange={(event) => setStateFilter(event.target.value as (typeof ORDER_STATES)[number])}
+        <div className="toolbar-row">
+          <div className="toolbar-filters">
+            <label className="text-sm text-muted">
+              {text.state}
+              <select
+                className="ml-2 form-control inline-block w-auto py-1.5"
+                value={stateFilter}
+                onChange={(event) => setStateFilter(event.target.value as (typeof ORDER_STATES)[number])}
+              >
+                {ORDER_STATES.map((state) => (
+                  <option key={state} value={state}>
+                    {state === "ALL" ? text.allRecent : orderStateLabel(state, text.orderStateLabels)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm text-muted">
+              {text.limit}
+              <select
+                className="ml-2 form-control inline-block w-auto py-1.5"
+                value={limit}
+                onChange={(event) => setLimit(Number(event.target.value))}
+              >
+                {LIMIT_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="toolbar-actions">
+            <button
+              className="btn btn-secondary min-h-9"
+              onClick={() => void loadOrders()}
+              disabled={isLoading}
             >
-              {ORDER_STATES.map((state) => (
-                <option key={state} value={state}>
-                  {state === "ALL" ? text.allRecent : orderStateLabel(state, text.orderStateLabels)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm text-muted">
-            {text.limit}
-            <select
-              className="ml-2 form-control inline-block w-auto py-1.5"
-              value={limit}
-              onChange={(event) => setLimit(Number(event.target.value))}
-            >
-              {LIMIT_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="btn btn-secondary min-h-9"
-            onClick={() => void loadOrders()}
-            disabled={isLoading}
-          >
-            {text.refresh}
-          </button>
-          <p className="text-xs text-muted">{payload?.count ?? 0}{text.itemCount}</p>
-          <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
+              {text.refresh}
+            </button>
+            <div className="toolbar-meta">
+              <p className="text-xs text-muted">{payload?.count ?? 0}{text.itemCount}</p>
+              <p className="text-xs text-muted">{text.recentUpdate}: {asTime(lastLoadedAt, intlLocale)}</p>
+            </div>
+          </div>
         </div>
         {error ? <p className="mt-3 rounded-md border border-danger/40 bg-rose-50 p-2 text-sm text-danger">{error}</p> : null}
       </section>
 
       <section className="data-panel overflow-auto">
-        <table className="min-w-[1180px] w-full border-collapse text-sm">
+        <table className="data-table data-table-orders text-sm">
+          <colgroup>
+            <col className="w-[180px]" />
+            <col className="w-[130px]" />
+            <col className="w-[90px]" />
+            <col className="w-[150px]" />
+            <col className="w-[170px]" />
+            <col className="w-[460px]" />
+          </colgroup>
           <thead>
             <tr className="text-left text-muted">
               <th className="border-b border-black/10 p-2">{text.updated}</th>
               <th className="border-b border-black/10 p-2">{text.market}</th>
               <th className="border-b border-black/10 p-2">{text.side}</th>
               <th className="border-b border-black/10 p-2">{text.intent}</th>
-              <th className="w-[156px] border-b border-black/10 p-2">{text.state}</th>
+              <th className="border-b border-black/10 p-2">{text.state}</th>
               <th className="border-b border-black/10 p-2">{text.orderNote}</th>
             </tr>
           </thead>
@@ -158,7 +172,7 @@ export default function OrdersPage() {
                   <td className="border-b border-black/10 p-2">{row.market}</td>
                   <td className="border-b border-black/10 p-2">{row.side || "-"}</td>
                   <td className="border-b border-black/10 p-2">{row.intent || "-"}</td>
-                  <td className="w-[156px] border-b border-black/10 p-2">
+                  <td className="border-b border-black/10 p-2">
                     <span
                       className={`status-badge min-w-[116px] justify-center ${orderStateBadgeClass(row.state)}`}
                       title={row.state}
@@ -167,7 +181,7 @@ export default function OrdersPage() {
                     </span>
                   </td>
                   <td className="border-b border-black/10 p-2" title={row.last_error || row.error_class || ""}>
-                    {short(row.last_error || row.error_class, 64)}
+                    <span className="table-truncate">{short(row.last_error || row.error_class, 96)}</span>
                   </td>
                 </tr>
               ))
