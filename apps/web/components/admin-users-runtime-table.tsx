@@ -1,47 +1,84 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { opsApi } from "../lib/api";
 import { sendClientLog, toErrorMessage } from "../lib/client-log";
 import { asInt, asPct, asTime, short } from "../lib/format";
 import type { AdminRuntimeSummaryItem, AdminRuntimeSummaryResponse } from "../lib/types";
 
-function toCredentialLabel(item: AdminRuntimeSummaryItem): string {
+type BadgeTone = "green" | "amber" | "red" | "blue" | "gray";
+
+function badgeClass(tone: BadgeTone): string {
+  return `status-badge status-badge-${tone}`;
+}
+
+function toCredentialLabel(item: AdminRuntimeSummaryItem): { label: string; tone: BadgeTone } {
   if (!item.credential.has_credentials) {
-    return "missing";
+    return { label: "미등록", tone: "amber" };
   }
-  return item.credential.is_valid ? "valid" : "invalid";
+  return item.credential.is_valid ? { label: "정상", tone: "green" } : { label: "확인 필요", tone: "red" };
+}
+
+function toBotTone(item: AdminRuntimeSummaryItem): BadgeTone {
+  if (item.flags.has_runtime_error) {
+    return "red";
+  }
+  if (item.flags.is_halted) {
+    return "amber";
+  }
+  if (item.bot.is_enabled) {
+    return "green";
+  }
+  return "gray";
+}
+
+function toRiskLabel(item: AdminRuntimeSummaryItem): { label: string; tone: BadgeTone } {
+  if (item.flags.is_budget_blocked) {
+    return { label: "요청 제한", tone: "red" };
+  }
+  if (item.flags.is_halted) {
+    return { label: "중지", tone: "amber" };
+  }
+  if (item.flags.has_runtime_error) {
+    return { label: "오류", tone: "red" };
+  }
+  return { label: "정상", tone: "green" };
 }
 
 function toRowTone(item: AdminRuntimeSummaryItem): string {
-  if (item.flags.is_budget_blocked) {
-    return "bg-red-50/70";
+  if (item.flags.is_budget_blocked || item.flags.has_runtime_error) {
+    return "bg-rose-50/70";
   }
-  if (item.flags.is_halted) {
+  if (item.flags.is_halted || item.flags.is_credential_invalid) {
     return "bg-amber-50/70";
-  }
-  if (item.flags.is_credential_invalid) {
-    return "bg-rose-50/60";
   }
   return "";
 }
 
-function toCriticalTags(item: AdminRuntimeSummaryItem): string[] {
-  const tags: string[] = [];
-  if (item.flags.is_budget_blocked) {
-    tags.push("budget-blocked");
-  }
-  if (item.flags.is_halted) {
-    tags.push("halted");
-  }
-  if (item.flags.is_credential_invalid) {
-    tags.push("credential-invalid");
-  }
-  if (item.flags.has_runtime_error) {
-    tags.push("runtime-error");
-  }
-  return tags;
+function toLatestActivity(item: AdminRuntimeSummaryItem): string | null {
+  return (
+    item.activity.recent_action_at_utc ||
+    item.activity.recent_error_at_utc ||
+    item.activity.recent_order_at_utc ||
+    item.activity.recent_audit_at_utc
+  );
+}
+
+function countWhere(items: AdminRuntimeSummaryItem[], predicate: (item: AdminRuntimeSummaryItem) => boolean): number {
+  return items.filter(predicate).length;
+}
+
+function sortRiskFirst(items: AdminRuntimeSummaryItem[]): AdminRuntimeSummaryItem[] {
+  return [...items].sort((a, b) => {
+    const score = (item: AdminRuntimeSummaryItem) =>
+      Number(item.flags.is_budget_blocked) * 50 +
+      Number(item.flags.has_runtime_error) * 40 +
+      Number(item.flags.is_halted) * 30 +
+      Number(item.flags.is_credential_invalid) * 20 +
+      Number(!item.is_active) * 10;
+    return score(b) - score(a);
+  });
 }
 
 export function AdminUsersRuntimeTable({
@@ -106,16 +143,14 @@ export function AdminUsersRuntimeTable({
           userId,
           reason: "admin_ops_session_invalidate",
         });
-        setActionMessage(
-          `user ${response.user_id} session invalidated (v${response.invalidated_before_version} -> v${response.token_version})`
-        );
+        setActionMessage(`사용자 ${response.user_id} 세션을 무효화했습니다.`);
         await loadSummary();
       } catch (requestError) {
         if (onAuthError?.(requestError)) {
           return;
         }
         const message = toErrorMessage(requestError);
-        setActionMessage(`session invalidation failed: ${message}`);
+        setActionMessage(`세션 무효화 실패: ${message}`);
         void sendClientLog({
           level: "ERROR",
           source: "admin-users-runtime-table.invalidateUserSessions",
@@ -129,122 +164,135 @@ export function AdminUsersRuntimeTable({
     [accessToken, invalidatingUserId, loadSummary, onAuthError]
   );
 
-  const items = payload?.items ?? [];
+  const items = useMemo(() => sortRiskFirst(payload?.items ?? []), [payload?.items]);
+  const summaryCards = [
+    { label: "전체 사용자", value: asInt(payload?.count || 0), tone: "gray" as BadgeTone },
+    { label: "실행 중", value: asInt(countWhere(items, (item) => item.bot.is_enabled)), tone: "green" as BadgeTone },
+    {
+      label: "중지/주의",
+      value: asInt(countWhere(items, (item) => item.flags.is_halted || item.flags.is_budget_blocked)),
+      tone: "amber" as BadgeTone,
+    },
+    {
+      label: "인증 문제",
+      value: asInt(countWhere(items, (item) => item.flags.is_credential_invalid || !item.credential.has_credentials)),
+      tone: "red" as BadgeTone,
+    },
+    { label: "최근 오류", value: asInt(countWhere(items, (item) => item.flags.has_runtime_error)), tone: "red" as BadgeTone },
+  ];
 
   return (
-    <section className="panel p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="font-display text-lg">User Runtime Summary</h2>
-          <p className="text-xs text-muted">
-            {isLoading ? "Loading..." : `${asInt(payload?.count || 0)} users`} / generated{" "}
-            {asTime(payload?.generated_at_utc, "en-US")}
-          </p>
-        </div>
-        <p className="text-xs text-muted">
-          Sort: budget blocked - halted - credential invalid - recent action
-        </p>
+    <section className="grid gap-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {summaryCards.map((card) => (
+          <article key={card.label} className="admin-panel">
+            <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{card.label}</p>
+            <div className="mt-2 flex items-end justify-between gap-3">
+              <p className="font-display text-3xl font-black tracking-tight">{card.value}</p>
+              <span className={badgeClass(card.tone)}>{card.label}</span>
+            </div>
+          </article>
+        ))}
       </div>
 
-      {error ? <p className="mb-3 text-sm text-red-700">{error}</p> : null}
-      {actionMessage ? <p className="mb-3 text-xs text-muted">{actionMessage}</p> : null}
+      <section className="admin-panel">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="font-display text-xl font-black tracking-tight">사용자 런타임</h2>
+            <p className="mt-1 text-xs font-medium text-muted">
+              위험, 중지, 인증 문제를 우선 정렬합니다. 최근 생성: {asTime(payload?.generated_at_kst || payload?.generated_at_utc, "ko-KR")}
+            </p>
+          </div>
+          <p className="text-xs font-bold text-muted">{isLoading ? "불러오는 중..." : `${asInt(items.length, "ko-KR")}명 표시`}</p>
+        </div>
 
-      <div className="overflow-x-auto rounded-lg border border-black/10 bg-white/70">
-        <table className="min-w-[1260px] w-full border-collapse text-sm">
-          <thead className="bg-black/5 text-left">
-            <tr>
-              <th className="px-3 py-2">User</th>
-              <th className="px-3 py-2">Role</th>
-              <th className="px-3 py-2">Bot</th>
-              <th className="px-3 py-2">Credential</th>
-              <th className="px-3 py-2">Budget</th>
-              <th className="px-3 py-2">Halt</th>
-              <th className="px-3 py-2">Recent Activity</th>
-              <th className="px-3 py-2">Flags</th>
-              <th className="px-3 py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => {
-              const tags = toCriticalTags(item);
-              return (
-                <tr key={item.user_id} className={`border-t border-black/10 align-top ${toRowTone(item)}`}>
-                  <td className="px-3 py-2">
-                    <p className="font-medium">{item.display_name || item.email}</p>
-                    <p className="text-xs text-muted">{item.email}</p>
-                    <p className="text-xs text-muted">id={item.user_id}</p>
-                  </td>
-                  <td className="px-3 py-2">
-                    <p>{item.role}</p>
-                    <p className="text-xs text-muted">{item.is_active ? "active" : "inactive"}</p>
-                  </td>
-                  <td className="px-3 py-2">
-                    <p>
-                      {item.bot.status} / {item.bot.is_enabled ? "enabled" : "disabled"}
-                    </p>
-                    <p className="text-xs text-muted">runtime={item.bot.runtime_status}</p>
-                    <p className="text-xs text-muted">last tick {asTime(item.bot.last_tick_utc, "en-US")}</p>
-                  </td>
-                  <td className="px-3 py-2">
-                    <p>{toCredentialLabel(item)}</p>
-                    <p className="text-xs text-muted">{item.credential.access_key_masked || "-"}</p>
-                    <p className="text-xs text-muted">
-                      key={item.credential.key_version || "-"} / {asTime(item.credential.updated_at_utc, "en-US")}
-                    </p>
-                  </td>
-                  <td className="px-3 py-2">
-                    <p>
-                      req {asInt(item.budget.request_count)} / {asInt(item.budget.limit)}
-                    </p>
-                    <p className="text-xs text-muted">blocked {asInt(item.budget.blocked_count)}</p>
-                    <p className="text-xs text-muted">remaining {asInt(item.budget.remaining)}</p>
-                  </td>
-                  <td className="px-3 py-2">
-                    <p>{item.halt.reason || "-"}</p>
-                    <p className="text-xs text-muted">{short(item.halt.message || "-", 64)}</p>
-                    <p className="text-xs text-muted">cooldown {asTime(item.halt.cooldown_until_utc, "en-US")}</p>
-                    <p className="text-xs text-muted">
-                      pnl {asPct(item.today_pnl.daily_pnl_pct, "en-US")} / threshold {asPct(item.today_pnl.halt_threshold_pct, "en-US")}
-                    </p>
-                  </td>
-                  <td className="px-3 py-2">
-                    <p className="text-xs">action {asTime(item.activity.recent_action_at_utc, "en-US")}</p>
-                    <p className="text-xs text-muted">order {asTime(item.activity.recent_order_at_utc, "en-US")}</p>
-                    <p className="text-xs text-muted">audit {asTime(item.activity.recent_audit_at_utc, "en-US")}</p>
-                    <p className="text-xs text-muted">error {asTime(item.activity.recent_error_at_utc, "en-US")}</p>
-                  </td>
-                  <td className="px-3 py-2">
-                    {tags.length ? (
-                      <p className="text-xs font-medium text-red-700">{tags.join(", ")}</p>
-                    ) : (
-                      <p className="text-xs text-muted">normal</p>
-                    )}
-                    {item.runtime.last_error ? (
-                      <p className="mt-1 text-xs text-red-800">{short(item.runtime.last_error, 72)}</p>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2">
-                    <button
-                      className="rounded-md border border-black/10 bg-white px-2 py-1 text-xs transition-colors hover:bg-black/5 disabled:opacity-60"
-                      onClick={() => void invalidateUserSessions(item.user_id)}
-                      disabled={invalidatingUserId !== null}
-                    >
-                      {invalidatingUserId === item.user_id ? "Invalidating..." : "Invalidate Session"}
-                    </button>
+        {error ? <p className="mb-3 rounded-xl border border-danger/30 bg-rose-50 p-3 text-sm text-danger">{error}</p> : null}
+        {actionMessage ? <p className="mb-3 rounded-xl border border-line bg-[#f8fafc] p-3 text-xs text-muted">{actionMessage}</p> : null}
+
+        <div className="admin-table-wrap">
+          <table className="admin-table min-w-[1180px]">
+            <thead>
+              <tr className="text-left text-muted">
+                <th>사용자</th>
+                <th>봇 상태</th>
+                <th>리스크</th>
+                <th>인증</th>
+                <th>최근 오류</th>
+                <th>최근 활동</th>
+                <th>작업</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const credential = toCredentialLabel(item);
+                const risk = toRiskLabel(item);
+                return (
+                  <tr key={item.user_id} className={toRowTone(item)}>
+                    <td>
+                      <p className="font-black text-ink">{item.display_name || item.email}</p>
+                      <p className="text-xs text-muted">{item.email}</p>
+                      <p className="text-xs text-muted">user_id {item.user_id} / {item.role}</p>
+                    </td>
+                    <td>
+                      <span className={badgeClass(toBotTone(item))}>{item.bot.status}</span>
+                      <p className="mt-2 text-xs text-muted">{item.bot.is_enabled ? "활성" : "비활성"} / runtime {item.bot.runtime_status}</p>
+                      <p className="text-xs text-muted">last tick {asTime(item.bot.last_tick_utc, "ko-KR")}</p>
+                    </td>
+                    <td>
+                      <span className={badgeClass(risk.tone)}>{risk.label}</span>
+                      <p className="mt-2 text-xs text-muted">{item.halt.reason || "halt 없음"}</p>
+                      <p className="text-xs text-muted">
+                        pnl {asPct(item.today_pnl.daily_pnl_pct, "ko-KR")} / threshold {asPct(item.today_pnl.halt_threshold_pct, "ko-KR")}
+                      </p>
+                    </td>
+                    <td>
+                      <span className={badgeClass(credential.tone)}>{credential.label}</span>
+                      <p className="mt-2 text-xs text-muted">{item.credential.access_key_masked || "-"}</p>
+                      <p className="text-xs text-muted">key {item.credential.key_version || "-"}</p>
+                    </td>
+                    <td>
+                      {item.runtime.last_error ? (
+                        <p className="max-w-[260px] whitespace-normal text-xs font-bold text-danger">{short(item.runtime.last_error, 120)}</p>
+                      ) : (
+                        <span className={badgeClass("green")}>없음</span>
+                      )}
+                    </td>
+                    <td>
+                      <p className="text-xs text-ink">최근 {asTime(toLatestActivity(item), "ko-KR")}</p>
+                      <p className="text-xs text-muted">order {asTime(item.activity.recent_order_at_utc, "ko-KR")}</p>
+                      <p className="text-xs text-muted">audit {asTime(item.activity.recent_audit_at_utc, "ko-KR")}</p>
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-secondary min-h-9 px-3 text-xs"
+                        onClick={() => void invalidateUserSessions(item.user_id)}
+                        disabled={invalidatingUserId !== null}
+                      >
+                        {invalidatingUserId === item.user_id ? "처리 중..." : "세션 무효화"}
+                      </button>
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs font-bold text-muted">상세</summary>
+                        <div className="mt-2 grid gap-1 text-xs text-muted">
+                          <p>budget {asInt(item.budget.request_count, "ko-KR")} / {asInt(item.budget.limit, "ko-KR")}</p>
+                          <p>blocked {asInt(item.budget.blocked_count, "ko-KR")} / remaining {asInt(item.budget.remaining, "ko-KR")}</p>
+                          <p>cooldown {asTime(item.halt.cooldown_until_utc, "ko-KR")}</p>
+                        </div>
+                      </details>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!items.length && !isLoading ? (
+                <tr>
+                  <td className="text-sm text-muted" colSpan={7}>
+                    표시할 사용자가 없습니다.
                   </td>
                 </tr>
-              );
-            })}
-            {!items.length && !isLoading ? (
-              <tr>
-                <td className="px-3 py-3 text-sm text-muted" colSpan={9}>
-                  No users found.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </section>
   );
 }

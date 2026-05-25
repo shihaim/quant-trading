@@ -63,6 +63,17 @@
 
 폼 중심 페이지는 `main.page.page-narrow`를 사용한다.
 
+### Admin Console
+
+관리자 화면은 사용자용 대시보드와 같은 브랜드 토큰을 공유하되, 정보 구조와 밀도를 분리한다.
+
+- 관리자 진입점은 `main.admin-console`을 사용한다.
+- 최대 폭은 사용자 화면보다 넓은 `1480px` 기준으로 잡고, 데이터 테이블의 가로 스크롤은 패널 내부에서만 발생시킨다.
+- 각 운영 영역은 `section.admin-panel`로 나누며, 반복 카드처럼 과하게 장식하지 않는다.
+- 관리자 첫 화면은 “요약 지표 -> 위험 우선 테이블 -> 감사 로그” 순서로 배치한다.
+- 위험, 중지, 인증 문제, 최근 오류가 있는 사용자를 우선 정렬한다.
+- 관리자 화면에서는 `user_id`, `target_id`, API 권한 경계 같은 운영 정보를 노출할 수 있지만, 일반 사용자 화면으로 섞이지 않아야 한다.
+
 ## Core Components
 
 ### `.panel`
@@ -107,6 +118,34 @@
 - 큰 테이블은 `overflow-auto`를 붙인다.
 - 내부 table은 `width: max-content; min-width: 100%;` 규칙을 따른다.
 - `th`, `td`는 기본적으로 `white-space: nowrap`을 사용한다.
+
+### `.admin-panel`
+
+관리자 운영 화면의 기본 표면이다.
+
+- radius: `18px`
+- border: `1px solid var(--line)`
+- shadow: `0 12px 40px rgba(0, 0, 0, 0.02)`
+- 사용자용 `.panel`보다 덜 둥글고 더 조밀하게 사용한다.
+
+### `.admin-table`
+
+관리자용 데이터 테이블이다.
+
+- wrapper는 `.admin-table-wrap`을 사용한다.
+- table은 `width: max-content; min-width: 100%;`를 유지한다.
+- 행은 위험도 우선 정렬을 허용하며, 위험 행은 매우 옅은 red/amber 배경만 사용한다.
+- 컬럼명은 운영자가 스캔하기 쉬운 짧은 한국어를 기본으로 한다.
+
+### `.status-badge`
+
+관리자 화면의 상태 배지는 다음 tone만 사용한다.
+
+- green: 정상, 실행 중, 성공
+- amber: 중지, 주의, 미등록
+- red: 오류, 인증 문제, 요청 제한, 실패
+- blue: 정보성 범위, 자동 갱신
+- gray: 비활성, 전체, 알 수 없음
 
 ### Buttons
 

@@ -58,9 +58,9 @@ export default function AdminOpsPage() {
 
   if (!isAuthReady || isVerifyingRole) {
     return (
-      <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
-        <section className="panel p-5">
-          <p className="text-sm text-muted">Verifying access...</p>
+      <main className="admin-console">
+        <section className="admin-panel">
+          <p className="text-sm text-muted">관리자 권한을 확인하는 중입니다.</p>
         </section>
       </main>
     );
@@ -68,10 +68,10 @@ export default function AdminOpsPage() {
 
   if (!isAllowed) {
     return (
-      <main className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
-        <section className="panel p-5">
+      <main className="admin-console">
+        <section className="admin-panel">
           <p className="text-sm text-muted">
-            {error || "You do not have admin access to this page. Redirecting to /dashboard."}
+            {error || "관리자 권한이 필요합니다. 대시보드로 이동합니다."}
           </p>
         </section>
       </main>
@@ -79,9 +79,24 @@ export default function AdminOpsPage() {
   }
 
   return (
-    <section className="mx-auto grid w-[min(1200px,92vw)] gap-4 py-7">
+    <main className="admin-console">
+      <header className="page-header">
+        <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">ADMIN OPS</p>
+        <div className="mt-1 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="font-display text-3xl font-black tracking-tight">관리자 운영</h1>
+            <p className="mt-2 text-sm font-medium text-muted">
+              사용자 런타임, 인증 상태, 위험 신호, 감사 로그를 확인합니다.
+            </p>
+          </div>
+          <p className="text-xs font-bold text-muted">
+            사용자별 상태와 관리자 작업은 `/api/admin/*` 권한 안에서만 조회됩니다.
+          </p>
+        </div>
+      </header>
+
       <AdminUsersRuntimeTable accessToken={accessToken} onAuthError={handleAuthError} />
       <AdminAuditLogViewer accessToken={accessToken} onAuthError={handleAuthError} />
-    </section>
+    </main>
   );
 }

@@ -88,6 +88,95 @@ body {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.025);
 }
 
+.admin-console {
+  width: 100%;
+  max-width: 1480px;
+  min-width: 0;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+  padding: 12px 0 40px;
+}
+
+.admin-panel {
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  padding: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.02);
+}
+
+.admin-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.admin-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.admin-table thead tr {
+  background: #f8fafc;
+}
+
+.admin-table th,
+.admin-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+  vertical-align: top;
+}
+
+.status-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 0 10px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.status-badge-green {
+  border-color: rgba(0, 150, 80, 0.2);
+  background: rgba(0, 230, 118, 0.14);
+  color: #047857;
+}
+
+.status-badge-amber {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
+}
+
+.status-badge-red {
+  border-color: rgba(255, 77, 77, 0.28);
+  background: rgba(255, 77, 77, 0.12);
+  color: #b91c1c;
+}
+
+.status-badge-blue {
+  border-color: rgba(37, 99, 235, 0.22);
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+}
+
+.status-badge-gray {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+}
+
 .form-control {
   width: 100%;
   border: 1px solid var(--line-strong);
