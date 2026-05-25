@@ -22,6 +22,15 @@
 - `qt-trader`
 - `qt-postgres`
 
+### Production and local dashboard domains
+
+- Production dashboard: `https://dont-worry-be-happy.today`
+- Production dashboard alias: `https://www.dont-worry-be-happy.today`
+- Production Caddy routing keeps `NEXT_PUBLIC_API_BASE_URL` empty so the web app calls same-origin `/api/*`.
+- Local Caddy-only dashboard: `https://qt-dashboard.local`
+- `qt-dashboard.local` is only for local development or host-local Caddy checks. Point it to `127.0.0.1` in the host OS hosts file and trust the Caddy local CA when testing locally.
+- Local frontend preview without production Caddy uses `qt-web-preview` at `http://127.0.0.1:3000` and points to the preview Ops API at `http://127.0.0.1:28080`.
+
 ## 2) 배포 후 기본 확인 절차
 
 정기 배포는 `main` 브랜치 push 이후 매주 토요일 오전 6시 작업 스케줄러의 `deploy.ps1` 실행으로 반영한다. hotfix는 GitHub Actions `ci`와 `build_and_push` 성공 확인 후 운영 PC에서 `deploy.ps1`을 수동 실행한다. 배포 직후 아래 순서로 확인한다.
@@ -72,8 +81,8 @@ docker compose --env-file .env.runtime up -d --force-recreate
 
 라우팅 확인 포인트:
 
-- 외부 대시보드 진입은 `https://qt-dashboard.local` (Caddy `443`, `tls internal`)
-- 호스트 OS에서 `qt-dashboard.local -> 127.0.0.1` hosts 설정 및 Caddy 로컬 CA 신뢰 여부 확인
+- 운영 대시보드 진입은 `https://dont-worry-be-happy.today` 또는 `https://www.dont-worry-be-happy.today` (Caddy `443`)
+- 로컬 Caddy 점검은 `https://qt-dashboard.local`을 사용하며, 호스트 OS에서 `qt-dashboard.local -> 127.0.0.1` hosts 설정 및 Caddy 로컬 CA 신뢰 여부 확인
 - `/api/logs*`는 `web`으로 전달
 - 나머지 `/api/*`는 `ops-api`로 전달
 - 그 외 요청은 `web`으로 전달

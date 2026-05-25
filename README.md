@@ -95,11 +95,16 @@ Open:
 - `http://127.0.0.1:3000`
 - set `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080` for direct frontend dev
 
-For Compose/Caddy deployment, open:
+For production Compose/Caddy deployment, open:
+
+- `https://dont-worry-be-happy.today`
+- `https://www.dont-worry-be-happy.today`
+- leave `NEXT_PUBLIC_API_BASE_URL` empty to use same-origin `/api/*` routing through Caddy
+
+For local Caddy development, open:
 
 - `https://qt-dashboard.local`
 - add a local hosts entry for `qt-dashboard.local` pointing to `127.0.0.1`
-- leave `NEXT_PUBLIC_API_BASE_URL` empty to use same-origin `/api/*` routing through Caddy
 - trust the Caddy local CA on your host OS if your browser warns about the certificate
 - Caddy internal cert lifetime is configured in `infra/caddy/Caddyfile` as `2160h` (90 days)
 

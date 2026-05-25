@@ -95,11 +95,16 @@ npm run dev
 - `http://127.0.0.1:3000`
 - 직접 개발 연결 시 `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080` 설정
 
-Compose/Caddy 배포 경로:
+운영 Compose/Caddy 배포 경로:
+
+- `https://dont-worry-be-happy.today`
+- `https://www.dont-worry-be-happy.today`
+- Caddy same-origin `/api/*` 라우팅을 사용하려면 `NEXT_PUBLIC_API_BASE_URL`은 비움
+
+로컬 Caddy 개발 경로:
 
 - `https://qt-dashboard.local`
 - `qt-dashboard.local`이 `127.0.0.1`을 가리키도록 hosts에 추가
-- Caddy same-origin `/api/*` 라우팅을 사용하려면 `NEXT_PUBLIC_API_BASE_URL`은 비움
 - 브라우저 인증서 경고 시 OS에 Caddy 로컬 CA를 신뢰 처리
 - Caddy 내부 인증서 수명은 `infra/caddy/Caddyfile`의 `2160h`(90일)
 
