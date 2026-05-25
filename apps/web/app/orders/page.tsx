@@ -11,6 +11,30 @@ import { useAuthGuard } from "../../lib/use-auth-guard";
 const ORDER_STATES = ["ALL", "ERROR_NEEDS_REVIEW", "OPEN", "PARTIAL"] as const;
 const LIMIT_OPTIONS = [25, 50, 100, 200] as const;
 
+type OrderStateLabels = {
+  [state: string]: string;
+};
+
+function orderStateLabel(state: string, labels: OrderStateLabels) {
+  return labels[state] ?? state.replaceAll("_", " ");
+}
+
+function orderStateBadgeClass(state: string) {
+  if (state === "ERROR_NEEDS_REVIEW" || state === "ERROR" || state === "REJECTED") {
+    return "status-badge-red";
+  }
+  if (state === "PARTIAL" || state === "WAIT" || state === "SENT" || state === "NEW") {
+    return "status-badge-amber";
+  }
+  if (state === "FILLED" || state === "TEST_OK") {
+    return "status-badge-green";
+  }
+  if (state === "OPEN") {
+    return "status-badge-blue";
+  }
+  return "status-badge-gray";
+}
+
 export default function OrdersPage() {
   const { accessToken, isAuthReady, handleAuthError } = useAuthGuard();
   const { intlLocale, text } = useLocale();
@@ -82,7 +106,7 @@ export default function OrdersPage() {
             >
               {ORDER_STATES.map((state) => (
                 <option key={state} value={state}>
-                  {state === "ALL" ? text.allRecent : state}
+                  {state === "ALL" ? text.allRecent : orderStateLabel(state, text.orderStateLabels)}
                 </option>
               ))}
             </select>
@@ -122,7 +146,7 @@ export default function OrdersPage() {
               <th className="border-b border-black/10 p-2">{text.market}</th>
               <th className="border-b border-black/10 p-2">{text.side}</th>
               <th className="border-b border-black/10 p-2">{text.intent}</th>
-              <th className="border-b border-black/10 p-2">{text.state}</th>
+              <th className="w-[156px] border-b border-black/10 p-2">{text.state}</th>
               <th className="border-b border-black/10 p-2">{text.orderNote}</th>
             </tr>
           </thead>
@@ -134,7 +158,14 @@ export default function OrdersPage() {
                   <td className="border-b border-black/10 p-2">{row.market}</td>
                   <td className="border-b border-black/10 p-2">{row.side || "-"}</td>
                   <td className="border-b border-black/10 p-2">{row.intent || "-"}</td>
-                  <td className="border-b border-black/10 p-2">{row.state}</td>
+                  <td className="w-[156px] border-b border-black/10 p-2">
+                    <span
+                      className={`status-badge min-w-[116px] justify-center ${orderStateBadgeClass(row.state)}`}
+                      title={row.state}
+                    >
+                      {orderStateLabel(row.state, text.orderStateLabels)}
+                    </span>
+                  </td>
                   <td className="border-b border-black/10 p-2" title={row.last_error || row.error_class || ""}>
                     {short(row.last_error || row.error_class, 64)}
                   </td>
