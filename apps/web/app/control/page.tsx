@@ -128,14 +128,14 @@ export default function ControlPage() {
         <p className="mt-1 text-sm text-muted">{text.controlFlowNote}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
-            className="btn btn-secondary"
+            className="btn btn-secondary border-2 border-safe/70 text-safe hover:border-safe"
             onClick={() => setPendingAction("start")}
             disabled={isLoading || isMutating || !status || status.is_enabled}
           >
             {text.requestStart}
           </button>
           <button
-            className="btn btn-secondary"
+            className="btn btn-secondary border-2 border-danger/70 text-danger hover:border-danger"
             onClick={() => setPendingAction("stop")}
             disabled={isLoading || isMutating || !status || !status.is_enabled}
           >
