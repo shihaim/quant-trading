@@ -1,6 +1,11 @@
 import type {
   AdminAuditLogsResponse,
   AdminSessionInvalidateResponse,
+  AdminUserBotStatusResponse,
+  AdminUserCredentialResponse,
+  AdminUserOrdersResponse,
+  AdminUserPnlDailyResponse,
+  AdminUserTradeMetricsResponse,
   AdminRuntimeSummaryResponse,
   AuthTokenResponse,
   AuthUserIdentity,
@@ -130,6 +135,64 @@ export const opsApi = {
   getAdminUsersRuntimeSummary: ({ accessToken, limit }: { accessToken: string; limit?: number }) =>
     request<AdminRuntimeSummaryResponse>(
       withQuery("/api/admin/users/runtime-summary", { limit }),
+      undefined,
+      accessToken
+    ),
+  getAdminUserBotStatus: ({ accessToken, userId }: { accessToken: string; userId: number }) =>
+    request<AdminUserBotStatusResponse>(
+      `/api/admin/users/${Math.max(1, Math.trunc(userId))}/bot/status`,
+      undefined,
+      accessToken
+    ),
+  getAdminUserCredential: ({ accessToken, userId }: { accessToken: string; userId: number }) =>
+    request<AdminUserCredentialResponse>(
+      `/api/admin/users/${Math.max(1, Math.trunc(userId))}/credentials/upbit`,
+      undefined,
+      accessToken
+    ),
+  getAdminUserOrders: ({
+    accessToken,
+    userId,
+    state,
+    limit,
+  }: {
+    accessToken: string;
+    userId: number;
+    state?: string;
+    limit?: number;
+  }) =>
+    request<AdminUserOrdersResponse>(
+      withQuery(`/api/admin/users/${Math.max(1, Math.trunc(userId))}/orders`, { state, limit }),
+      undefined,
+      accessToken
+    ),
+  getAdminUserPnlDaily: ({
+    accessToken,
+    userId,
+    days,
+    tz,
+  }: {
+    accessToken: string;
+    userId: number;
+    days?: number;
+    tz?: PnlTimezone;
+  }) =>
+    request<AdminUserPnlDailyResponse>(
+      withQuery(`/api/admin/users/${Math.max(1, Math.trunc(userId))}/pnl/daily`, { days, tz }),
+      undefined,
+      accessToken
+    ),
+  getAdminUserTradeMetrics: ({
+    accessToken,
+    userId,
+    limit,
+  }: {
+    accessToken: string;
+    userId: number;
+    limit?: number;
+  }) =>
+    request<AdminUserTradeMetricsResponse>(
+      withQuery(`/api/admin/users/${Math.max(1, Math.trunc(userId))}/metrics/trade`, { limit }),
       undefined,
       accessToken
     ),

@@ -4,8 +4,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AdminAuditLogViewer } from "../../../components/admin-audit-log-viewer";
+import { AdminUserDetailPanel } from "../../../components/admin-user-detail-panel";
 import { AdminUsersRuntimeTable } from "../../../components/admin-users-runtime-table";
 import { opsApi } from "../../../lib/api";
+import type { AdminRuntimeSummaryItem } from "../../../lib/types";
 import { toUserFacingErrorMessage } from "../../../lib/user-facing-error";
 import { useAuthGuard } from "../../../lib/use-auth-guard";
 
@@ -15,6 +17,7 @@ export default function AdminOpsPage() {
   const [isVerifyingRole, setIsVerifyingRole] = useState(true);
   const [isAllowed, setIsAllowed] = useState(false);
   const [error, setError] = useState("");
+  const [selectedUser, setSelectedUser] = useState<AdminRuntimeSummaryItem | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -95,7 +98,18 @@ export default function AdminOpsPage() {
         </div>
       </header>
 
-      <AdminUsersRuntimeTable accessToken={accessToken} onAuthError={handleAuthError} />
+      <AdminUserDetailPanel
+        accessToken={accessToken}
+        selectedUser={selectedUser}
+        onClose={() => setSelectedUser(null)}
+        onAuthError={handleAuthError}
+      />
+      <AdminUsersRuntimeTable
+        accessToken={accessToken}
+        onAuthError={handleAuthError}
+        onInspectUser={setSelectedUser}
+        selectedUserId={selectedUser?.user_id ?? null}
+      />
       <AdminAuditLogViewer accessToken={accessToken} onAuthError={handleAuthError} />
     </main>
   );

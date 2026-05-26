@@ -235,6 +235,30 @@ export interface AdminSessionInvalidateResponse {
   source: string;
 }
 
+export interface AdminUserBotStatusResponse extends MeBotStatusResponse {
+  user_id: number;
+}
+
+export interface AdminUserCredentialResponse extends MeUpbitCredentialResponse {
+  user_id: number;
+  source: string;
+}
+
+export interface AdminUserOrdersResponse extends MeOrdersResponse {
+  user_id: number;
+  source: string;
+}
+
+export interface AdminUserPnlDailyResponse extends MePnlDailyResponse {
+  user_id: number;
+  source: string;
+}
+
+export interface AdminUserTradeMetricsResponse extends MeTradeMetricsResponse {
+  user_id: number;
+  source: string;
+}
+
 export interface AuthUserIdentity {
   id: number;
   email: string;

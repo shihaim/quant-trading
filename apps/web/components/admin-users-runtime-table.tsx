@@ -84,9 +84,13 @@ function sortRiskFirst(items: AdminRuntimeSummaryItem[]): AdminRuntimeSummaryIte
 export function AdminUsersRuntimeTable({
   accessToken,
   onAuthError,
+  onInspectUser,
+  selectedUserId,
 }: {
   accessToken: string;
   onAuthError?: (error: unknown) => boolean;
+  onInspectUser?: (user: AdminRuntimeSummaryItem) => void;
+  selectedUserId?: number | null;
 }) {
   const [payload, setPayload] = useState<AdminRuntimeSummaryResponse | null>(null);
   const [error, setError] = useState("");
@@ -236,7 +240,10 @@ export function AdminUsersRuntimeTable({
                 const credential = toCredentialLabel(item);
                 const risk = toRiskLabel(item);
                 return (
-                  <tr key={item.user_id} className={toRowTone(item)}>
+                  <tr
+                    key={item.user_id}
+                    className={`${toRowTone(item)} ${selectedUserId === item.user_id ? "outline outline-2 outline-info/30" : ""}`}
+                  >
                     <td>
                       <p className="table-truncate font-black text-ink" title={item.display_name || item.email}>{item.display_name || item.email}</p>
                       <p className="table-truncate text-xs text-muted" title={item.email}>{item.email}</p>
@@ -272,6 +279,14 @@ export function AdminUsersRuntimeTable({
                       <p className="text-xs text-muted">audit {asTime(item.activity.recent_audit_at_utc, "ko-KR")}</p>
                     </td>
                     <td>
+                      {onInspectUser ? (
+                        <button
+                          className="btn btn-primary mb-2 min-h-9 px-3 text-xs"
+                          onClick={() => onInspectUser(item)}
+                        >
+                          상세 보기
+                        </button>
+                      ) : null}
                       <button
                         className="btn btn-secondary min-h-9 px-3 text-xs"
                         onClick={() => void invalidateUserSessions(item.user_id)}
