@@ -271,6 +271,8 @@ export interface MeOverviewResponse {
     exchange: string;
     has_credentials: boolean;
     is_valid: boolean;
+    status_level: "connected" | "missing" | "needs_attention";
+    next_action: "register_credentials" | "update_credentials" | null;
     key_version: string | null;
     access_key_masked: string | null;
     updated_at_utc: string | null;
@@ -290,6 +292,18 @@ export interface MeOverviewResponse {
     partial_count: number;
     in_flight_count: number;
   };
+}
+
+export interface MeUpbitCredentialResponse {
+  exchange: string;
+  has_credentials: boolean;
+  is_valid: boolean;
+  status_level: "connected" | "missing" | "needs_attention";
+  next_action: "register_credentials" | "update_credentials" | null;
+  key_version: string | null;
+  access_key_masked: string | null;
+  access_key_fingerprint_prefix: string | null;
+  updated_at_utc: string | null;
 }
 
 export interface ApiScope {

@@ -9,6 +9,11 @@ from trader.auth.service import AuthService
 from trader.data.db import Base
 from trader.data.models import UserExchangeCredential
 
+VALID_ACCESS_KEY = "A" * 40
+VALID_SECRET_KEY = "S" * 40
+NEXT_ACCESS_KEY = "B" * 40
+NEXT_SECRET_KEY = "T" * 40
+
 
 def _session():
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
@@ -25,22 +30,24 @@ def test_set_exchange_credentials_encrypts_at_rest_and_returns_status():
     status = service.set_exchange_credentials(
         user=user,
         exchange="UPBIT",
-        access_key="access-key-123456",
-        secret_key="secret-key-1234567890",
+        access_key=VALID_ACCESS_KEY,
+        secret_key=VALID_SECRET_KEY,
     )
 
     assert status["has_credentials"] is True
     assert status["is_valid"] is True
+    assert status["status_level"] == "connected"
+    assert status["next_action"] is None
     assert status["exchange"] == "UPBIT"
-    assert status["access_key_masked"].startswith("acce...")
+    assert status["access_key_masked"] == "AAAA...AAAA"
     assert status["access_key_fingerprint_prefix"] is not None
 
     row = session.execute(select(UserExchangeCredential).where(UserExchangeCredential.user_id == user.id)).scalar_one()
-    assert row.access_key_encrypted != "access-key-123456"
-    assert row.secret_key_encrypted != "secret-key-1234567890"
+    assert row.access_key_encrypted != VALID_ACCESS_KEY
+    assert row.secret_key_encrypted != VALID_SECRET_KEY
     assert row.key_version == "v1"
-    assert "access-key-123456" not in row.access_key_encrypted
-    assert "secret-key-1234567890" not in row.secret_key_encrypted
+    assert VALID_ACCESS_KEY not in row.access_key_encrypted
+    assert VALID_SECRET_KEY not in row.secret_key_encrypted
 
 
 def test_get_exchange_credential_status_returns_empty_without_credentials():
@@ -52,7 +59,28 @@ def test_get_exchange_credential_status_returns_empty_without_credentials():
 
     assert status["has_credentials"] is False
     assert status["is_valid"] is False
+    assert status["status_level"] == "missing"
+    assert status["next_action"] == "register_credentials"
     assert status["access_key_masked"] is None
+
+
+def test_get_exchange_credential_status_marks_unreadable_secret_needs_attention():
+    session = _session()
+    user = AuthService(session).signup(email="brokencred@example.com", password="strong-pass-123")
+    UserCredentialService(session, encryption_key="original-key").set_exchange_credentials(
+        user=user,
+        exchange="UPBIT",
+        access_key=VALID_ACCESS_KEY,
+        secret_key=VALID_SECRET_KEY,
+    )
+    service = UserCredentialService(session, encryption_key="different-key", keyring={"v1": "different-key"})
+
+    status = service.get_exchange_credential_status(user=user, exchange="UPBIT")
+
+    assert status["has_credentials"] is True
+    assert status["is_valid"] is False
+    assert status["status_level"] == "needs_attention"
+    assert status["next_action"] == "update_credentials"
 
 
 def test_set_exchange_credentials_validates_input():
@@ -65,15 +93,31 @@ def test_set_exchange_credentials_validates_input():
             user=user,
             exchange="UPBIT",
             access_key="",
-            secret_key="secret-key-1234567890",
+            secret_key=VALID_SECRET_KEY,
+        )
+
+    with pytest.raises(CredentialValidationError, match="access_key must be 40 characters"):
+        service.set_exchange_credentials(
+            user=user,
+            exchange="UPBIT",
+            access_key="too-short",
+            secret_key=VALID_SECRET_KEY,
+        )
+
+    with pytest.raises(CredentialValidationError, match="secret_key must be 40 characters"):
+        service.set_exchange_credentials(
+            user=user,
+            exchange="UPBIT",
+            access_key=VALID_ACCESS_KEY,
+            secret_key="too-short",
         )
 
     with pytest.raises(CredentialValidationError, match="only UPBIT is supported"):
         service.set_exchange_credentials(
             user=user,
             exchange="BINANCE",
-            access_key="access-key-123456",
-            secret_key="secret-key-1234567890",
+            access_key=VALID_ACCESS_KEY,
+            secret_key=VALID_SECRET_KEY,
         )
 
 
@@ -88,8 +132,8 @@ def test_key_rotation_reencrypts_rows_and_preserves_plaintext():
     base_service.set_exchange_credentials(
         user=user,
         exchange="UPBIT",
-        access_key="access-key-123456",
-        secret_key="secret-key-1234567890",
+        access_key=VALID_ACCESS_KEY,
+        secret_key=VALID_SECRET_KEY,
     )
 
     rotating_service = UserCredentialService(
@@ -109,8 +153,8 @@ def test_key_rotation_reencrypts_rows_and_preserves_plaintext():
     assert status["is_valid"] is True
     assert status["key_version"] == "v2"
     access, secret = rotating_service.get_exchange_credentials_by_user_id(user_id=user.id, exchange="UPBIT")
-    assert access == "access-key-123456"
-    assert secret == "secret-key-1234567890"
+    assert access == VALID_ACCESS_KEY
+    assert secret == VALID_SECRET_KEY
 
 
 def test_key_rotation_requires_target_key_configuration():
@@ -119,8 +163,8 @@ def test_key_rotation_requires_target_key_configuration():
     UserCredentialService(session, encryption_key="cred-unit-test-key").set_exchange_credentials(
         user=user,
         exchange="UPBIT",
-        access_key="access-key-123456",
-        secret_key="secret-key-1234567890",
+        access_key=VALID_ACCESS_KEY,
+        secret_key=VALID_SECRET_KEY,
     )
     service = UserCredentialService(
         session,

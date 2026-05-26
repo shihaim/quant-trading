@@ -66,6 +66,8 @@ class MeReadService:
             "exchange": status.get("exchange"),
             "has_credentials": bool(status.get("has_credentials")),
             "is_valid": bool(status.get("is_valid")),
+            "status_level": status.get("status_level"),
+            "next_action": status.get("next_action"),
             "key_version": status.get("key_version"),
             "access_key_masked": status.get("access_key_masked"),
             "updated_at_utc": status.get("updated_at_utc"),

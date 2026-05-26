@@ -32,6 +32,13 @@ from trader.data.models import (
     UserRiskGuard,
 )
 
+VALID_ACCESS_KEY = "A" * 40
+VALID_SECRET_KEY = "S" * 40
+SECOND_ACCESS_KEY = "B" * 40
+SECOND_SECRET_KEY = "T" * 40
+THIRD_ACCESS_KEY = "C" * 40
+THIRD_SECRET_KEY = "U" * 40
+
 
 def _request_json(
     *,
@@ -145,16 +152,18 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
             method="POST",
             path="/api/me/credentials/upbit",
             payload={
-                "access_key": "access-key-123456",
-                "secret_key": "secret-key-1234567890",
+                "access_key": VALID_ACCESS_KEY,
+                "secret_key": VALID_SECRET_KEY,
             },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert status == 200
         assert payload["has_credentials"] is True
         assert payload["is_valid"] is True
+        assert payload["status_level"] == "connected"
         assert "access_key" not in payload
         assert "secret_key" not in payload
+        assert VALID_SECRET_KEY not in str(payload)
 
         status, payload = _request_json(
             port=server.server_port,
@@ -165,12 +174,13 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
         assert status == 200
         assert payload["has_credentials"] is True
         assert payload["is_valid"] is True
-        assert payload["access_key_masked"].startswith("acce...")
+        assert payload["status_level"] == "connected"
+        assert payload["access_key_masked"] == "AAAA...AAAA"
 
         with Session() as session:
             row = session.execute(select(UserExchangeCredential)).scalar_one()
-            assert row.access_key_encrypted != "access-key-123456"
-            assert row.secret_key_encrypted != "secret-key-1234567890"
+            assert row.access_key_encrypted != VALID_ACCESS_KEY
+            assert row.secret_key_encrypted != VALID_SECRET_KEY
 
             order = Order(
                 user_id=1,
@@ -331,6 +341,8 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
         )
         assert status == 200
         assert payload["credential"]["has_credentials"] is False
+        assert payload["credential"]["status_level"] == "missing"
+        assert payload["credential"]["next_action"] == "register_credentials"
         assert payload["orders"]["open_count"] == 0
         assert payload["today_pnl"]["daily_pnl_abs"] == 0.0
 
@@ -339,8 +351,8 @@ def test_auth_endpoints_support_signup_login_and_me(tmp_path):
             method="POST",
             path="/api/me/credentials/upbit",
             payload={
-                "access_key": "access-key-654321",
-                "secret_key": "secret-key-0987654321",
+                "access_key": SECOND_ACCESS_KEY,
+                "secret_key": SECOND_SECRET_KEY,
             },
             headers={"Authorization": f"Bearer {token2}"},
         )
@@ -675,7 +687,7 @@ def test_admin_user_scoped_routes_enforce_admin_and_target_scope(tmp_path, monke
             port=server.server_port,
             method="POST",
             path="/api/me/credentials/upbit",
-            payload={"access_key": "access-key-a12345", "secret_key": "secret-key-a1234567890"},
+            payload={"access_key": VALID_ACCESS_KEY, "secret_key": VALID_SECRET_KEY},
             headers={"Authorization": f"Bearer {user_a_token}"},
         )
         assert status == 200
@@ -683,7 +695,7 @@ def test_admin_user_scoped_routes_enforce_admin_and_target_scope(tmp_path, monke
             port=server.server_port,
             method="POST",
             path="/api/me/credentials/upbit",
-            payload={"access_key": "access-key-b12345", "secret_key": "secret-key-b1234567890"},
+            payload={"access_key": SECOND_ACCESS_KEY, "secret_key": SECOND_SECRET_KEY},
             headers={"Authorization": f"Bearer {user_b_token}"},
         )
         assert status == 200
@@ -1157,7 +1169,7 @@ def test_admin_alias_routes_retire_and_key_rotation_endpoint(tmp_path, monkeypat
             port=server.server_port,
             method="POST",
             path="/api/me/credentials/upbit",
-            payload={"access_key": "access-key-123456", "secret_key": "secret-key-1234567890"},
+            payload={"access_key": VALID_ACCESS_KEY, "secret_key": VALID_SECRET_KEY},
             headers={"Authorization": f"Bearer {member_token}"},
         )
         assert status == 200
@@ -1261,7 +1273,7 @@ def test_admin_user_runtime_summary_endpoint_enforces_boundary_and_reflects_stat
             port=server.server_port,
             method="POST",
             path="/api/me/credentials/upbit",
-            payload={"access_key": "access-key-a12345", "secret_key": "secret-key-a1234567890"},
+            payload={"access_key": THIRD_ACCESS_KEY, "secret_key": THIRD_SECRET_KEY},
             headers={"Authorization": f"Bearer {user_a_token}"},
         )
         assert status == 200

@@ -31,6 +31,7 @@ Notion `Task` is the canonical source for Story/Task/Sub-task planning and execu
 - `runbooks/order_attempts_ops_checks_2026-03-04.md`
 - `runbooks/order_attempts_unique_constraints_runbook_2026-03-22.md`
 - `runbooks/postgres_v3_schema_sync_runbook_2026-03-08.md`
+- `runbooks/upbit_credential_user_ux.md`
 - `runbooks/upbit_credentials_migration_runbook_2026-03-05.md`
 
 ## Current Follow-Up References

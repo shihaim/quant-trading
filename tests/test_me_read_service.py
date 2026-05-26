@@ -13,6 +13,13 @@ from trader.data.db import Base
 from trader.data.models import DailyEquity, Order, TradeMetric, UserBotRuntime
 from trader.me.read_service import MeReadService, UserScopeError
 
+VALID_ACCESS_KEY = "A" * 40
+VALID_SECRET_KEY = "S" * 40
+SECOND_ACCESS_KEY = "B" * 40
+SECOND_SECRET_KEY = "T" * 40
+THIRD_ACCESS_KEY = "C" * 40
+THIRD_SECRET_KEY = "U" * 40
+
 
 def _session():
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
@@ -74,8 +81,8 @@ def test_me_read_service_returns_current_user_scope_data():
     UserCredentialService(session, encryption_key="me-read-key").set_exchange_credentials(
         user=owner,
         exchange="UPBIT",
-        access_key="access-key-123456",
-        secret_key="secret-key-1234567890",
+        access_key=VALID_ACCESS_KEY,
+        secret_key=VALID_SECRET_KEY,
     )
     _seed_user_rows(session, user_id=owner.id)
 
@@ -106,14 +113,14 @@ def test_me_read_service_scopes_data_per_user_without_bridge_error():
     credential_service.set_exchange_credentials(
         user=owner,
         exchange="UPBIT",
-        access_key="access-key-123456",
-        secret_key="secret-key-1234567890",
+        access_key=VALID_ACCESS_KEY,
+        secret_key=VALID_SECRET_KEY,
     )
     credential_service.set_exchange_credentials(
         user=other,
         exchange="UPBIT",
-        access_key="access-key-654321",
-        secret_key="secret-key-0987654321",
+        access_key=SECOND_ACCESS_KEY,
+        secret_key=SECOND_SECRET_KEY,
     )
     _seed_user_rows(session, user_id=owner.id)
 
@@ -141,14 +148,14 @@ def test_me_bot_stop_isolated_per_user_runtime():
     credential_service.set_exchange_credentials(
         user=user_a,
         exchange="UPBIT",
-        access_key="access-key-a12345",
-        secret_key="secret-key-a1234567890",
+        access_key=VALID_ACCESS_KEY,
+        secret_key=VALID_SECRET_KEY,
     )
     credential_service.set_exchange_credentials(
         user=user_b,
         exchange="UPBIT",
-        access_key="access-key-b12345",
-        secret_key="secret-key-b1234567890",
+        access_key=SECOND_ACCESS_KEY,
+        secret_key=SECOND_SECRET_KEY,
     )
 
     service = MeReadService(session=session, trade_mode="PAPER", encryption_key="me-read-key")
@@ -172,8 +179,8 @@ def test_me_bot_start_blocks_during_cooldown():
     UserCredentialService(session, encryption_key="me-read-key").set_exchange_credentials(
         user=user,
         exchange="UPBIT",
-        access_key="access-key-cooldown-123",
-        secret_key="secret-key-cooldown-1234567890",
+        access_key=THIRD_ACCESS_KEY,
+        secret_key=THIRD_SECRET_KEY,
     )
     runtime = session.execute(
         select(UserBotRuntime).where(UserBotRuntime.user_id == user.id)

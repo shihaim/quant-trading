@@ -12,6 +12,7 @@ from trader.auth.crypto import SecretCryptoError, decrypt_secret, encrypt_secret
 from trader.data.models import User, UserExchangeCredential
 
 EXCHANGE_UPBIT = "UPBIT"
+UPBIT_API_KEY_LENGTH = 40
 
 
 class CredentialValidationError(ValueError):
@@ -60,8 +61,8 @@ def _validate_access_key(value: str) -> str:
     normalized = (value or "").strip()
     if not normalized:
         raise CredentialValidationError("access_key_required", "access_key is required")
-    if len(normalized) < 8:
-        raise CredentialValidationError("invalid_access_key", "access_key is too short")
+    if len(normalized) != UPBIT_API_KEY_LENGTH:
+        raise CredentialValidationError("invalid_access_key", "access_key must be 40 characters")
     return normalized
 
 
@@ -69,8 +70,8 @@ def _validate_secret_key(value: str) -> str:
     normalized = (value or "").strip()
     if not normalized:
         raise CredentialValidationError("secret_key_required", "secret_key is required")
-    if len(normalized) < 16:
-        raise CredentialValidationError("invalid_secret_key", "secret_key is too short")
+    if len(normalized) != UPBIT_API_KEY_LENGTH:
+        raise CredentialValidationError("invalid_secret_key", "secret_key must be 40 characters")
     return normalized
 
 
@@ -111,16 +112,21 @@ def _status_payload(row: UserExchangeCredential | None, *, is_valid: bool) -> di
             "exchange": EXCHANGE_UPBIT,
             "has_credentials": False,
             "is_valid": False,
+            "status_level": "missing",
+            "next_action": "register_credentials",
             "key_version": None,
             "access_key_masked": None,
             "access_key_fingerprint_prefix": None,
             "updated_at_utc": None,
         }
 
+    status_level = "connected" if is_valid else "needs_attention"
     return {
         "exchange": row.exchange,
         "has_credentials": True,
         "is_valid": is_valid,
+        "status_level": status_level,
+        "next_action": None if is_valid else "update_credentials",
         "key_version": getattr(row, "key_version", "v1"),
         "access_key_masked": row.access_key_masked,
         "access_key_fingerprint_prefix": row.access_key_fingerprint[:12],

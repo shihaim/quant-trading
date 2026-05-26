@@ -11,13 +11,18 @@ import { LocaleProvider, type LocaleCode, useLocale } from "../lib/locale";
 
 const APP_NAME = "Don't worry, Be happy";
 
-type NavItem = { href: string; labelKey: "dashboard" | "orders" | "pnl" | "execution" | "control" | "adminOps" };
+type NavItem = {
+  href: string;
+  labelKey: "dashboard" | "orders" | "pnl" | "execution" | "control" | "adminOps";
+  fallbackLabel?: string;
+};
 
 const AUTH_NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", labelKey: "dashboard" },
   { href: "/orders", labelKey: "orders" },
   { href: "/pnl", labelKey: "pnl" },
   { href: "/execution", labelKey: "execution" },
+  { href: "/credentials", labelKey: "control", fallbackLabel: "업비트 인증" },
   { href: "/control", labelKey: "control" }
 ];
 
@@ -93,7 +98,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
                     isActive ? "bg-[#f1f5f9] text-ink" : "text-muted hover:bg-[#f8fafc] hover:text-ink"
                   }`}
                 >
-                  {text[item.labelKey]}
+                  {item.fallbackLabel || text[item.labelKey]}
                 </Link>
               );
             })}

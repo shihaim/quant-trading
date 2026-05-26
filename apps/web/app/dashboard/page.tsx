@@ -99,9 +99,9 @@ export default function DashboardPage() {
         />
         <OverviewCard
           label={text.upbitAuthStatus}
-          value={overview?.credential.has_credentials && overview.credential.is_valid ? text.connected : text.attention}
-          detail={overview?.credential.has_credentials ? overview.credential.exchange : text.notConnected}
-          tone={overview?.credential.has_credentials && overview.credential.is_valid ? "safe" : "danger"}
+          value={credentialStatusValue(overview, text)}
+          detail={credentialStatusDetail(overview, text)}
+          tone={overview?.credential.status_level === "connected" ? "safe" : "danger"}
         />
         <OverviewCard
           label={text.reviewOrders}
@@ -129,12 +129,27 @@ export default function DashboardPage() {
           <NavButton href="/orders" label={text.orders} />
           <NavButton href="/pnl" label={text.pnl} />
           <NavButton href="/execution" label={text.execution} />
+          <NavButton href="/credentials" label="업비트 인증" />
           <NavButton href="/control" label={text.control} />
           {user?.is_admin ? <NavButton href="/admin/ops" label={text.adminOps} /> : null}
         </div>
       </section>
     </main>
   );
+}
+
+function credentialStatusValue(overview: MeOverviewResponse | null, text: ReturnType<typeof useLocale>["text"]): string {
+  if (!overview) return "-";
+  if (overview.credential.status_level === "connected") return text.connected;
+  if (overview.credential.status_level === "needs_attention") return text.attention;
+  return text.notConnected;
+}
+
+function credentialStatusDetail(overview: MeOverviewResponse | null, text: ReturnType<typeof useLocale>["text"]): string {
+  if (!overview) return "-";
+  if (overview.credential.status_level === "connected") return overview.credential.access_key_masked || "UPBIT";
+  if (overview.credential.status_level === "needs_attention") return "새 키 저장 필요";
+  return "업비트 키 등록 필요";
 }
 
 function NavButton({ href, label }: { href: string; label: string }) {

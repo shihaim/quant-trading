@@ -10,6 +10,7 @@ import type {
   MeOrdersResponse,
   MePnlDailyResponse,
   MeTradeMetricsResponse,
+  MeUpbitCredentialResponse,
   OpsSummary,
   PnlTimezone
 } from "./types";
@@ -106,6 +107,25 @@ export const opsApi = {
   getMe: ({ accessToken }: { accessToken: string }) => request<{ user: AuthUserIdentity }>("/api/me", undefined, accessToken),
   getMyOverview: ({ accessToken }: { accessToken: string }) =>
     request<MeOverviewResponse>("/api/me/overview", undefined, accessToken),
+  getMyUpbitCredential: ({ accessToken }: { accessToken: string }) =>
+    request<MeUpbitCredentialResponse>("/api/me/credentials/upbit", undefined, accessToken),
+  setMyUpbitCredential: ({
+    accessToken,
+    accessKey,
+    secretKey,
+  }: {
+    accessToken: string;
+    accessKey: string;
+    secretKey: string;
+  }) =>
+    request<MeUpbitCredentialResponse>(
+      "/api/me/credentials/upbit",
+      {
+        method: "POST",
+        body: JSON.stringify({ access_key: accessKey, secret_key: secretKey }),
+      },
+      accessToken
+    ),
   getSummary: ({ accessToken }: { accessToken: string }) => request<OpsSummary>("/api/ops/summary", undefined, accessToken),
   getAdminUsersRuntimeSummary: ({ accessToken, limit }: { accessToken: string; limit?: number }) =>
     request<AdminRuntimeSummaryResponse>(
