@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -84,8 +85,14 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {hasToken ? (
         <aside className="hidden w-72 shrink-0 border-r border-[#e2e8f0] bg-white px-6 py-7 md:flex md:flex-col">
           <Link href="/dashboard" className="flex items-center gap-3">
-            <span className="inline-block h-8 w-4 -skew-x-12 rounded-sm bg-safe" aria-hidden="true" />
-            <span className="font-display text-2xl font-black tracking-tight text-ink">{APP_NAME}</span>
+            <Image
+              src="/logo.png"
+              alt={APP_NAME}
+              width={206}
+              height={100}
+              className="h-16 w-auto max-w-full object-contain"
+              priority
+            />
           </Link>
           <nav className="mt-10 grid gap-1.5">
             {navItems.map((item) => {
@@ -110,9 +117,15 @@ function AppShellContent({ children }: { children: ReactNode }) {
         <header className="mx-auto mb-5 w-full max-w-[1200px]">
           <div className="panel overflow-hidden">
             <div className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
-              <Link href={hasToken ? "/dashboard" : "/"} className="grid gap-1">
-                <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-muted">{text.product}</p>
-                <h1 className="font-display text-2xl font-black tracking-tight">{APP_NAME}</h1>
+              <Link href={hasToken ? "/dashboard" : "/"} className="flex min-w-0 items-center">
+                <Image
+                  src="/logo.png"
+                  alt={APP_NAME}
+                  width={206}
+                  height={100}
+                  className="h-14 w-auto max-w-[min(280px,70vw)] object-contain"
+                  priority
+                />
               </Link>
               <nav className="flex min-w-0 flex-wrap items-center gap-2">
                 <LocaleSwitch locale={locale} setLocale={setLocale} />

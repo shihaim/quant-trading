@@ -5,7 +5,12 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Don't worry, Be happy",
-  description: "Bright quant trading operations console"
+  description: "Bright quant trading operations console",
+  icons: {
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
+    apple: "/favicon.png"
+  }
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
