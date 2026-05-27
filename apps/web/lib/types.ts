@@ -235,6 +235,17 @@ export interface AdminSessionInvalidateResponse {
   source: string;
 }
 
+export interface AdminRoleUpdateResponse {
+  user_id: number;
+  role: "admin" | "member";
+  is_admin: boolean;
+  changed: boolean;
+  token_version: number;
+  invalidated_before_version: number | null;
+  reason: string;
+  source: string;
+}
+
 export interface AdminUserBotStatusResponse extends MeBotStatusResponse {
   user_id: number;
 }

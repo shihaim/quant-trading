@@ -1,5 +1,6 @@
 import type {
   AdminAuditLogsResponse,
+  AdminRoleUpdateResponse,
   AdminSessionInvalidateResponse,
   AdminUserBotStatusResponse,
   AdminUserCredentialResponse,
@@ -248,6 +249,23 @@ export const opsApi = {
       {
         method: "POST",
         body: JSON.stringify({ reason: reason || "admin_runtime_action" }),
+      },
+      accessToken
+    ),
+  updateAdminUserRole: ({
+    accessToken,
+    userId,
+    role,
+  }: {
+    accessToken: string;
+    userId: number;
+    role: "admin" | "member";
+  }) =>
+    request<AdminRoleUpdateResponse>(
+      `/api/admin/users/${Math.max(1, Math.trunc(userId))}/role`,
+      {
+        method: "POST",
+        body: JSON.stringify({ role }),
       },
       accessToken
     ),

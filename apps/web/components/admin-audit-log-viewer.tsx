@@ -56,9 +56,13 @@ function toResultClass(value: boolean | null): string {
 export function AdminAuditLogViewer({
   accessToken,
   onAuthError,
+  focusTargetUserId,
+  focusNonce,
 }: {
   accessToken: string;
   onAuthError?: (error: unknown) => boolean;
+  focusTargetUserId?: number | null;
+  focusNonce?: number;
 }) {
   const [payload, setPayload] = useState<AdminAuditLogsResponse | null>(null);
   const [error, setError] = useState("");
@@ -127,6 +131,19 @@ export function AdminAuditLogViewer({
   }, [loadLogs]);
 
   useEffect(() => {
+    if (!focusTargetUserId) {
+      return;
+    }
+    setOffset(0);
+    setFilters((prev) => ({
+      ...prev,
+      target_user_id: String(focusTargetUserId),
+      action: "admin_action",
+      result: "all",
+    }));
+  }, [focusNonce, focusTargetUserId]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       void loadLogs();
     }, 15000);
@@ -137,7 +154,7 @@ export function AdminAuditLogViewer({
   const canNext = Boolean(payload?.pagination.has_more);
 
   return (
-    <section className="admin-panel">
+    <section id="admin-audit-logs" className="admin-panel">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">AUDIT</p>

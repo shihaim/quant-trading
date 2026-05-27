@@ -1051,6 +1051,16 @@ def test_admin_role_update_uses_db_role_and_revokes_existing_session(tmp_path, m
             method="POST",
             path=f"/api/admin/users/{member_id}/role",
             payload={"role": "admin"},
+            headers={"Authorization": f"Bearer {member_token_before}"},
+        )
+        assert status == 403
+        assert payload["error"] == "forbidden"
+
+        status, payload = _request_json(
+            port=server.server_port,
+            method="POST",
+            path=f"/api/admin/users/{member_id}/role",
+            payload={"role": "admin"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert status == 200
@@ -1087,6 +1097,28 @@ def test_admin_role_update_uses_db_role_and_revokes_existing_session(tmp_path, m
         )
         assert status == 200
         assert payload["source"] == "/api/admin/users/runtime-summary"
+
+        with Session() as session:
+            logs = session.execute(select(AuditLog).order_by(AuditLog.id.asc())).scalars().all()
+            role_logs = [
+                log
+                for log in logs
+                if json.loads(log.metadata_json).get("source") == f"/api/admin/users/{member_id}/role"
+            ]
+            assert len(role_logs) == 2
+            forbidden_meta = json.loads(role_logs[0].metadata_json)
+            assert forbidden_meta["source"] == f"/api/admin/users/{member_id}/role"
+            assert forbidden_meta["outcome"] == "forbidden"
+            allowed_meta = json.loads(role_logs[1].metadata_json)
+            assert role_logs[1].actor_user_id is not None
+            assert allowed_meta["source"] == f"/api/admin/users/{member_id}/role"
+            assert allowed_meta["outcome"] == "allowed"
+            assert allowed_meta["target_user_id"] == member_id
+            assert allowed_meta["role_before"] == "member"
+            assert allowed_meta["role_after"] == "admin"
+            assert allowed_meta["changed"] is True
+            assert allowed_meta["token_version_before"] == 1
+            assert allowed_meta["token_version_after"] == 2
     finally:
         server.shutdown()
         server.server_close()

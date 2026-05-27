@@ -8,6 +8,10 @@ import { asInt, asPct, asTime, short } from "../lib/format";
 import type { AdminRuntimeSummaryItem, AdminRuntimeSummaryResponse } from "../lib/types";
 
 type BadgeTone = "green" | "amber" | "red" | "blue" | "gray";
+type PendingAdminAction =
+  | { kind: "invalidate_sessions"; user: AdminRuntimeSummaryItem; confirmation: string }
+  | { kind: "set_role"; user: AdminRuntimeSummaryItem; role: "admin" | "member"; confirmation: string }
+  | null;
 
 function badgeClass(tone: BadgeTone): string {
   return `status-badge status-badge-${tone}`;
@@ -86,16 +90,20 @@ export function AdminUsersRuntimeTable({
   onAuthError,
   onInspectUser,
   selectedUserId,
+  onAuditFocus,
 }: {
   accessToken: string;
   onAuthError?: (error: unknown) => boolean;
   onInspectUser?: (user: AdminRuntimeSummaryItem) => void;
   selectedUserId?: number | null;
+  onAuditFocus?: (targetUserId: number) => void;
 }) {
   const [payload, setPayload] = useState<AdminRuntimeSummaryResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [invalidatingUserId, setInvalidatingUserId] = useState<number | null>(null);
+  const [roleUpdatingUserId, setRoleUpdatingUserId] = useState<number | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAdminAction>(null);
   const [actionMessage, setActionMessage] = useState("");
 
   const loadSummary = useCallback(async () => {
@@ -134,20 +142,25 @@ export function AdminUsersRuntimeTable({
     return () => window.clearInterval(timer);
   }, [loadSummary]);
 
-  const invalidateUserSessions = useCallback(
-    async (userId: number) => {
-      if (!accessToken || invalidatingUserId !== null) {
+  const canConfirmPendingAction =
+    pendingAction !== null && pendingAction.confirmation.trim().toLowerCase() === pendingAction.user.email.toLowerCase();
+
+  const completeSessionInvalidation = useCallback(
+    async (user: AdminRuntimeSummaryItem) => {
+      if (!accessToken || invalidatingUserId !== null || roleUpdatingUserId !== null) {
         return;
       }
-      setInvalidatingUserId(userId);
+      setInvalidatingUserId(user.user_id);
       setActionMessage("");
       try {
         const response = await opsApi.invalidateAdminUserSessions({
           accessToken,
-          userId,
+          userId: user.user_id,
           reason: "admin_ops_session_invalidate",
         });
-        setActionMessage(`사용자 ${response.user_id} 세션을 무효화했습니다.`);
+        setActionMessage(`${user.email} 세션을 무효화했습니다. 새 세션 버전: ${response.token_version}`);
+        setPendingAction(null);
+        onAuditFocus?.(user.user_id);
         await loadSummary();
       } catch (requestError) {
         if (onAuthError?.(requestError)) {
@@ -159,13 +172,50 @@ export function AdminUsersRuntimeTable({
           level: "ERROR",
           source: "admin-users-runtime-table.invalidateUserSessions",
           message,
-          context: { user_id: userId },
+          context: { user_id: user.user_id },
         });
       } finally {
         setInvalidatingUserId(null);
       }
     },
-    [accessToken, invalidatingUserId, loadSummary, onAuthError]
+    [accessToken, invalidatingUserId, loadSummary, onAuditFocus, onAuthError, roleUpdatingUserId]
+  );
+
+  const completeRoleUpdate = useCallback(
+    async (user: AdminRuntimeSummaryItem, role: "admin" | "member") => {
+      if (!accessToken || invalidatingUserId !== null || roleUpdatingUserId !== null) {
+        return;
+      }
+      setRoleUpdatingUserId(user.user_id);
+      setActionMessage("");
+      try {
+        const response = await opsApi.updateAdminUserRole({
+          accessToken,
+          userId: user.user_id,
+          role,
+        });
+        const changedText = response.changed ? "변경하고 기존 세션을 무효화했습니다" : "이미 같은 역할이라 변경하지 않았습니다";
+        setActionMessage(`${user.email} 역할을 ${response.role}로 ${changedText}.`);
+        setPendingAction(null);
+        onAuditFocus?.(user.user_id);
+        await loadSummary();
+      } catch (requestError) {
+        if (onAuthError?.(requestError)) {
+          return;
+        }
+        const message = toErrorMessage(requestError);
+        setActionMessage(`역할 변경 실패: ${message}`);
+        void sendClientLog({
+          level: "ERROR",
+          source: "admin-users-runtime-table.updateUserRole",
+          message,
+          context: { user_id: user.user_id, role },
+        });
+      } finally {
+        setRoleUpdatingUserId(null);
+      }
+    },
+    [accessToken, invalidatingUserId, loadSummary, onAuditFocus, onAuthError, roleUpdatingUserId]
   );
 
   const items = useMemo(() => sortRiskFirst(payload?.items ?? []), [payload?.items]);
@@ -211,7 +261,61 @@ export function AdminUsersRuntimeTable({
         </div>
 
         {error ? <p className="mb-3 rounded-xl border border-danger/30 bg-rose-50 p-3 text-sm text-danger">{error}</p> : null}
-        {actionMessage ? <p className="mb-3 rounded-xl border border-line bg-[#f8fafc] p-3 text-xs text-muted">{actionMessage}</p> : null}
+        {actionMessage ? (
+          <div className="mb-3 flex flex-col gap-2 rounded-xl border border-safe/30 bg-emerald-50 p-3 text-xs font-bold text-ink md:flex-row md:items-center md:justify-between">
+            <p>{actionMessage}</p>
+            <a className="text-safe underline decoration-safe/50 underline-offset-4" href="#admin-audit-logs">
+              감사 로그에서 확인
+            </a>
+          </div>
+        ) : null}
+
+        {pendingAction ? (
+          <section className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-sm font-black text-ink">
+                  {pendingAction.kind === "invalidate_sessions"
+                    ? "세션 무효화 확인"
+                    : `역할 변경 확인: ${pendingAction.role}`}
+                </p>
+                <p className="mt-1 text-xs font-bold text-muted">
+                  위험한 관리자 작업입니다. 대상 계정 이메일을 정확히 입력해야 실행됩니다.
+                </p>
+                <p className="mt-2 text-xs text-muted">
+                  대상: <strong>{pendingAction.user.email}</strong>
+                </p>
+              </div>
+              <button className="btn btn-secondary min-h-9 px-3 text-xs" onClick={() => setPendingAction(null)}>
+                취소
+              </button>
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+              <input
+                className="form-control text-sm"
+                placeholder={pendingAction.user.email}
+                value={pendingAction.confirmation}
+                onChange={(event) => setPendingAction({ ...pendingAction, confirmation: event.target.value })}
+              />
+              <button
+                className="btn btn-primary min-h-10 px-4 text-xs"
+                disabled={!canConfirmPendingAction || invalidatingUserId !== null || roleUpdatingUserId !== null}
+                onClick={() => {
+                  if (!canConfirmPendingAction) {
+                    return;
+                  }
+                  if (pendingAction.kind === "invalidate_sessions") {
+                    void completeSessionInvalidation(pendingAction.user);
+                  } else {
+                    void completeRoleUpdate(pendingAction.user, pendingAction.role);
+                  }
+                }}
+              >
+                확인 후 실행
+              </button>
+            </div>
+          </section>
+        ) : null}
 
         <div className="admin-table-wrap">
           <table className="admin-table admin-table-runtime">
@@ -289,11 +393,27 @@ export function AdminUsersRuntimeTable({
                       ) : null}
                       <button
                         className="btn btn-secondary min-h-9 px-3 text-xs"
-                        onClick={() => void invalidateUserSessions(item.user_id)}
-                        disabled={invalidatingUserId !== null}
+                        onClick={() => setPendingAction({ kind: "invalidate_sessions", user: item, confirmation: "" })}
+                        disabled={invalidatingUserId !== null || roleUpdatingUserId !== null}
                       >
                         {invalidatingUserId === item.user_id ? "처리 중..." : "세션 무효화"}
                       </button>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          className="btn btn-secondary min-h-9 px-3 text-xs"
+                          onClick={() => setPendingAction({ kind: "set_role", user: item, role: "admin", confirmation: "" })}
+                          disabled={item.role === "admin" || invalidatingUserId !== null || roleUpdatingUserId !== null}
+                        >
+                          관리자로 변경
+                        </button>
+                        <button
+                          className="btn btn-secondary min-h-9 px-3 text-xs"
+                          onClick={() => setPendingAction({ kind: "set_role", user: item, role: "member", confirmation: "" })}
+                          disabled={item.role !== "admin" || invalidatingUserId !== null || roleUpdatingUserId !== null}
+                        >
+                          일반으로 변경
+                        </button>
+                      </div>
                       <details className="mt-2">
                         <summary className="cursor-pointer text-xs font-bold text-muted">상세</summary>
                         <div className="mt-2 grid gap-1 text-xs text-muted">

@@ -18,6 +18,10 @@ export default function AdminOpsPage() {
   const [isAllowed, setIsAllowed] = useState(false);
   const [error, setError] = useState("");
   const [selectedUser, setSelectedUser] = useState<AdminRuntimeSummaryItem | null>(null);
+  const [auditFocus, setAuditFocus] = useState<{ targetUserId: number | null; nonce: number }>({
+    targetUserId: null,
+    nonce: 0,
+  });
 
   useEffect(() => {
     let disposed = false;
@@ -109,8 +113,14 @@ export default function AdminOpsPage() {
         onAuthError={handleAuthError}
         onInspectUser={setSelectedUser}
         selectedUserId={selectedUser?.user_id ?? null}
+        onAuditFocus={(targetUserId) => setAuditFocus({ targetUserId, nonce: Date.now() })}
       />
-      <AdminAuditLogViewer accessToken={accessToken} onAuthError={handleAuthError} />
+      <AdminAuditLogViewer
+        accessToken={accessToken}
+        onAuthError={handleAuthError}
+        focusTargetUserId={auditFocus.targetUserId}
+        focusNonce={auditFocus.nonce}
+      />
     </main>
   );
 }
