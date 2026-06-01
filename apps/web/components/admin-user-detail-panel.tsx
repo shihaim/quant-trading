@@ -148,6 +148,44 @@ export function AdminUserDetailPanel({
 
       {error ? <p className="mt-3 rounded-xl border border-danger/30 bg-rose-50 p-3 text-sm text-danger">{error}</p> : null}
 
+      <section className="mt-4 rounded-xl border border-line bg-[#f8fafc] p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-black text-ink">운영 이벤트</h3>
+          <span className={badgeClass((selectedUser.events || []).length > 0 ? "amber" : "green")}>
+            {asInt((selectedUser.events || []).length, "ko-KR")}건
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2">
+          {(selectedUser.events || []).map((event) => (
+            <article key={event.id} className="rounded-lg border border-line bg-white p-3">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{event.kind}</p>
+                  <p className="mt-1 text-sm font-black text-ink">{event.title}</p>
+                  <p className="mt-1 text-xs font-medium text-muted">{event.message}</p>
+                </div>
+                <p className="text-xs font-bold text-muted">{asTime(event.occurred_at_kst || event.occurred_at_utc, "ko-KR")}</p>
+              </div>
+              {event.detail ? (
+                <dl className="mt-2 grid gap-1 text-xs text-muted md:grid-cols-2">
+                  {Object.entries(event.detail).slice(0, 6).map(([key, value]) => (
+                    <div key={key} className="grid grid-cols-[130px_1fr] gap-2">
+                      <dt className="font-bold">{key}</dt>
+                      <dd className="min-w-0 break-words font-black text-ink">{String(value ?? "-")}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+            </article>
+          ))}
+          {(selectedUser.events || []).length === 0 ? (
+            <p className="rounded-lg border border-dashed border-line bg-white p-3 text-sm font-bold text-muted">
+              현재 표시할 운영 이벤트가 없습니다.
+            </p>
+          ) : null}
+        </div>
+      </section>
+
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <DetailKpi
           label="봇 상태"

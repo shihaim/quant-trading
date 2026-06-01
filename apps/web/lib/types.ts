@@ -110,6 +110,23 @@ export interface OpsSummary {
   };
 }
 
+export type OperationalEventKind = "halt" | "credential_issue" | "order_review" | "runtime_error";
+export type OperationalEventSeverity = "critical" | "warning" | "info";
+
+export interface OperationalEvent {
+  id: string;
+  kind: OperationalEventKind;
+  severity: OperationalEventSeverity;
+  status: "open" | "resolved";
+  occurred_at_utc: string | null;
+  occurred_at_kst: string | null;
+  title: string;
+  message: string;
+  action_label: string;
+  action_view: string;
+  detail?: Record<string, unknown>;
+}
+
 export interface AdminRuntimeSummaryItem {
   user_id: number;
   email: string;
@@ -175,6 +192,7 @@ export interface AdminRuntimeSummaryItem {
     is_credential_invalid: boolean;
     is_critical: boolean;
   };
+  events: OperationalEvent[];
 }
 
 export interface AdminRuntimeSummaryResponse {
@@ -327,6 +345,7 @@ export interface MeOverviewResponse {
     partial_count: number;
     in_flight_count: number;
   };
+  events: OperationalEvent[];
 }
 
 export interface MeUpbitCredentialResponse {

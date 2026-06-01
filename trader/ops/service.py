@@ -19,6 +19,7 @@ from trader.ops.dto import (
     to_trade_metric_list_item,
     to_trade_metric_summary_item,
 )
+from trader.ops.events import admin_events
 
 IN_FLIGHT_STATES = {"NEW", "SENT", "WAIT"}
 REVIEW_STATE = "ERROR_NEEDS_REVIEW"
@@ -311,6 +312,14 @@ class OpsService:
                 .group_by(Order.user_id)
             ).all()
         }
+        needs_review_count_by_user = {
+            int(user_id): int(count)
+            for user_id, count in self.session.execute(
+                select(Order.user_id, func.count())
+                .where(Order.user_id.in_(user_ids), Order.state == REVIEW_STATE)
+                .group_by(Order.user_id)
+            ).all()
+        }
         last_audit_by_user = {
             int(actor_user_id): ensure_utc(created_at)
             for actor_user_id, created_at in self.session.execute(
@@ -397,6 +406,7 @@ class OpsService:
             order_error_at = last_order_error_by_user.get(user_id)
             runtime_error_at = runtime_updated_at if runtime_last_error else None
             recent_error_at = self._max_timestamp(runtime_error_at, order_error_at)
+            needs_review_count = int(needs_review_count_by_user.get(user_id, 0))
             recent_action_at = self._max_timestamp(
                 recent_order_at,
                 recent_audit_at,
@@ -443,6 +453,15 @@ class OpsService:
                         "is_budget_blocked": bool(budget.get("blocked_count", 0) > 0 or budget.get("is_limited")),
                         "has_runtime_error": bool(runtime_last_error),
                     },
+                    "events": admin_events(
+                        target_user_id=user_id,
+                        halt=halt,
+                        credential=None,
+                        needs_review_count=needs_review_count,
+                        runtime_last_error=runtime_last_error,
+                        runtime_consecutive_failures=runtime_consecutive_failures,
+                        runtime_updated_at_utc=iso_utc(runtime_updated_at),
+                    ),
                 }
             )
 

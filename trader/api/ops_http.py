@@ -36,6 +36,7 @@ from trader.config.config_repo import ConfigRepo
 from trader.data.models import User, UserBotRuntime
 from trader.me.read_service import MeReadService, UserScopeError
 from trader.ops.dto import iso_kst, iso_utc
+from trader.ops.events import admin_events
 from trader.ops.service import OpsService
 
 logger = logging.getLogger(__name__)
@@ -592,6 +593,19 @@ def create_ops_handler(
                         )
                         item["role"] = role
                         item["credential"] = credential
+                        credential_events = admin_events(
+                            target_user_id=user_id,
+                            halt={},
+                            credential=credential,
+                            needs_review_count=0,
+                            runtime_last_error=None,
+                            runtime_consecutive_failures=0,
+                            runtime_updated_at_utc=None,
+                        )
+                        if credential_events:
+                            existing_events = list(item.get("events", []))
+                            insert_at = 1 if existing_events and existing_events[0].get("kind") == "halt" else 0
+                            item["events"] = existing_events[:insert_at] + credential_events + existing_events[insert_at:]
 
                     items.sort(
                         key=lambda row: (

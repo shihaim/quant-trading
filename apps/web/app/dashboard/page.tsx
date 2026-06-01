@@ -114,6 +114,46 @@ export default function DashboardPage() {
       <section className="data-panel p-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
+            <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">알림</p>
+            <h2 className="mt-1 font-display text-xl font-black tracking-tight">지금 확인할 일</h2>
+          </div>
+          <span className="rounded-full bg-[#f1f5f9] px-3 py-1 text-xs font-black text-muted">
+            {asInt(overview?.events?.length || 0, intlLocale)}건
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3">
+          {(overview?.events ?? []).map((event) => (
+            <article
+              key={event.id}
+              className={`rounded-xl border p-4 ${
+                event.severity === "critical" ? "border-danger/30 bg-rose-50" : "border-amber-200 bg-amber-50/70"
+              }`}
+            >
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-black text-ink">{event.title}</p>
+                  <p className="mt-1 text-sm font-medium text-muted">{event.message}</p>
+                  <p className="mt-2 text-xs font-bold text-muted">
+                    {event.occurred_at_kst || event.occurred_at_utc ? asTime(event.occurred_at_kst || event.occurred_at_utc, intlLocale) : text.recentUpdate}
+                  </p>
+                </div>
+                <Link className="btn btn-secondary min-h-9 px-3 text-xs" href={eventActionHref(event.action_view)}>
+                  {event.action_label}
+                </Link>
+              </div>
+            </article>
+          ))}
+          {overview && (overview.events || []).length === 0 ? (
+            <div className="rounded-xl border border-line bg-white p-4 text-sm font-bold text-muted">
+              지금 바로 조치할 알림이 없습니다.
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="data-panel p-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
             <p className="text-xs font-black uppercase tracking-[0.08em] text-muted">{text.workspace}</p>
             <h2 className="mt-1 font-display text-xl font-black tracking-tight">{text.secondaryActions}</h2>
           </div>
@@ -136,6 +176,19 @@ export default function DashboardPage() {
       </section>
     </main>
   );
+}
+
+function eventActionHref(actionView: string): string {
+  switch (actionView) {
+    case "credentials":
+      return "/credentials";
+    case "orders":
+      return "/orders";
+    case "control":
+      return "/control";
+    default:
+      return "/dashboard";
+  }
 }
 
 function credentialStatusValue(overview: MeOverviewResponse | null, text: ReturnType<typeof useLocale>["text"]): string {

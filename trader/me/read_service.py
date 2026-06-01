@@ -10,6 +10,7 @@ from trader.config.settings import settings
 from trader.config.config_repo import ConfigRepo
 from trader.data.models import User, UserBotRuntime, UserExchangeCredential
 from trader.ops.dto import iso_kst, iso_utc
+from trader.ops.events import user_events
 from trader.ops.service import OpsService
 
 
@@ -104,6 +105,9 @@ class MeReadService:
     def get_overview(self, *, user: User) -> dict:
         summary = self._ops_for_user(user_id=user.id).get_summary(metrics_limit=50, needs_review_limit=5)
         credential = self._credential_status(user=user)
+        runtime_row = self.session.execute(
+            select(UserBotRuntime).where(UserBotRuntime.user_id == user.id)
+        ).scalar_one_or_none()
         orders = summary["orders"]
         counts = orders["counts"]
         return {
@@ -136,6 +140,13 @@ class MeReadService:
                 "partial_count": int(counts.get("PARTIAL", 0)),
                 "in_flight_count": int(counts.get("IN_FLIGHT", 0)),
             },
+            "events": user_events(
+                halt=summary["halt"],
+                credential=credential,
+                needs_review_count=int(counts.get("ERROR_NEEDS_REVIEW", 0)),
+                runtime_last_error=getattr(runtime_row, "last_error", None),
+                runtime_updated_at_utc=iso_utc(getattr(runtime_row, "updated_at", None)),
+            ),
         }
 
     def get_bot_status(self, *, user: User) -> dict:

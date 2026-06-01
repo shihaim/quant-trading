@@ -85,6 +85,20 @@ function sortRiskFirst(items: AdminRuntimeSummaryItem[]): AdminRuntimeSummaryIte
   });
 }
 
+function eventTone(kind: string): BadgeTone {
+  if (kind === "halt" || kind === "runtime_error") {
+    return "red";
+  }
+  if (kind === "credential_issue" || kind === "order_review") {
+    return "amber";
+  }
+  return "gray";
+}
+
+function recentEvents(items: AdminRuntimeSummaryItem[]): Array<{ item: AdminRuntimeSummaryItem; event: AdminRuntimeSummaryItem["events"][number] }> {
+  return items.flatMap((item) => (item.events || []).map((event) => ({ item, event }))).slice(0, 8);
+}
+
 export function AdminUsersRuntimeTable({
   accessToken,
   onAuthError,
@@ -219,6 +233,7 @@ export function AdminUsersRuntimeTable({
   );
 
   const items = useMemo(() => sortRiskFirst(payload?.items ?? []), [payload?.items]);
+  const events = useMemo(() => recentEvents(items), [items]);
   const summaryCards = [
     { label: "전체 사용자", value: asInt(payload?.count || 0), tone: "gray" as BadgeTone },
     { label: "실행 중", value: asInt(countWhere(items, (item) => item.bot.is_enabled)), tone: "green" as BadgeTone },
@@ -269,6 +284,38 @@ export function AdminUsersRuntimeTable({
             </a>
           </div>
         ) : null}
+
+        <section className="mb-4 rounded-xl border border-line bg-[#f8fafc] p-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-sm font-black text-ink">운영 이벤트</h3>
+              <p className="mt-1 text-xs font-bold text-muted">중지, 인증 문제, 주문 검토, 런타임 오류를 사용자별로 표시합니다.</p>
+            </div>
+            <span className={badgeClass(events.length > 0 ? "amber" : "green")}>{asInt(events.length, "ko-KR")}건</span>
+          </div>
+          <div className="mt-3 grid gap-2">
+            {events.map(({ item, event }) => (
+              <button
+                key={`${item.user_id}-${event.id}`}
+                className="grid gap-2 rounded-lg border border-line bg-white p-3 text-left transition-colors hover:bg-[#f1f5f9] md:grid-cols-[170px_120px_1fr_150px]"
+                onClick={() => onInspectUser?.(item)}
+              >
+                <span className="table-truncate text-xs font-black text-ink" title={item.email}>{item.email}</span>
+                <span className={badgeClass(eventTone(event.kind))}>{event.kind}</span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-black text-ink">{event.title}</span>
+                  <span className="block table-truncate text-xs font-medium text-muted" title={event.message}>{event.message}</span>
+                </span>
+                <span className="text-xs font-bold text-muted">{asTime(event.occurred_at_kst || event.occurred_at_utc, "ko-KR")}</span>
+              </button>
+            ))}
+            {events.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-line bg-white p-3 text-sm font-bold text-muted">
+                현재 표시할 운영 이벤트가 없습니다.
+              </p>
+            ) : null}
+          </div>
+        </section>
 
         {pendingAction ? (
           <section className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-4">

@@ -202,3 +202,68 @@ def test_me_bot_start_blocks_during_cooldown():
         assert False, "expected cooldown_active"
     except UserScopeError as exc:
         assert exc.code == "cooldown_active"
+
+
+def test_me_overview_returns_scoped_friendly_actionable_events():
+    session = _session()
+    owner = AuthService(session).signup(email="event-owner@example.com", password="strong-pass-123")
+    other = AuthService(session).signup(email="event-other@example.com", password="strong-pass-123")
+    now = datetime.now(timezone.utc)
+    session.add(
+        UserBotRuntime(
+            user_id=owner.id,
+            is_enabled=False,
+            status="HALTED",
+            last_error="exchange timeout while submitting order",
+            consecutive_failures=2,
+            halt_reason="daily_loss_limit",
+            halted_at=now,
+            updated_at=now,
+        )
+    )
+    session.add(
+        Order(
+            user_id=owner.id,
+            market="KRW-BTC",
+            side="bid",
+            ord_type="limit",
+            requested_price=Decimal("100"),
+            requested_volume=Decimal("1"),
+            client_order_id="owner-review-order",
+            intent="ENTRY",
+            state="ERROR_NEEDS_REVIEW",
+            error_class="TimeoutError",
+            last_error="exchange timeout",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.add(
+        Order(
+            user_id=other.id,
+            market="KRW-ETH",
+            side="ask",
+            ord_type="limit",
+            requested_price=Decimal("200"),
+            requested_volume=Decimal("1"),
+            client_order_id="other-review-order",
+            intent="EXIT",
+            state="ERROR_NEEDS_REVIEW",
+            error_class="OtherError",
+            last_error="other user issue",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.commit()
+
+    overview = MeReadService(session=session, trade_mode="REAL", encryption_key="me-read-key").get_overview(user=owner)
+
+    kinds = [event["kind"] for event in overview["events"]]
+    assert kinds == ["halt", "credential_issue", "order_review", "runtime_error"]
+    assert overview["events"][0]["title"] == "자동매매가 잠시 멈췄어요"
+    assert overview["events"][1]["message"] == "업비트 연결 정보를 등록하면 자동매매를 사용할 수 있어요."
+    assert overview["events"][2]["message"] == "확인이 필요한 주문 1건이 있어요."
+    assert overview["events"][3]["message"] == "자동매매가 최근 실행 중 문제를 만났어요. 잠시 후 다시 확인해 주세요."
+    assert all("user_id" not in event for event in overview["events"])
+    assert all("source" not in event and "scope" not in event and "api_path" not in event for event in overview["events"])

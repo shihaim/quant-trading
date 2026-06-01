@@ -1430,6 +1430,13 @@ def test_admin_user_runtime_summary_endpoint_enforces_boundary_and_reflects_stat
         assert user_b_item["activity"]["recent_order_at_utc"] is not None
         assert user_b_item["activity"]["recent_audit_at_utc"] is not None
         assert user_b_item["activity"]["recent_error_at_utc"] is not None
+        event_by_kind = {event["kind"]: event for event in user_b_item["events"]}
+        assert set(event_by_kind) == {"halt", "credential_issue", "order_review", "runtime_error"}
+        assert event_by_kind["halt"]["title"] == "User runtime halted"
+        assert event_by_kind["halt"]["detail"]["target_user_id"] == user_b_id
+        assert event_by_kind["credential_issue"]["detail"]["has_credentials"] is False
+        assert event_by_kind["order_review"]["message"] == "1 order requires manual review."
+        assert event_by_kind["runtime_error"]["detail"]["last_error"] == "risk_guard:manual_halt"
 
         # Critical user (budget blocked + halted + invalid credential) should be prioritized.
         assert payload["items"][0]["email"] == "user-b@example.com"
