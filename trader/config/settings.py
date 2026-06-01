@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     rehearsal_order_notional_krw: float = Field(default=6000.0, alias="REHEARSAL_ORDER_NOTIONAL_KRW")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+    ops_api_env: str = Field(default="local", alias="OPS_API_ENV")
     ops_api_allow_origin: str = Field(default="*", alias="OPS_API_ALLOW_ORIGIN")
     ops_api_auth_secret: str = Field(default="dev-ops-auth-secret-change-me", alias="OPS_API_AUTH_SECRET")
     ops_api_auth_token_ttl_seconds: int = Field(default=43200, alias="OPS_API_AUTH_TOKEN_TTL_SECONDS")

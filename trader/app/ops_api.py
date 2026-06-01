@@ -5,6 +5,7 @@ import logging
 
 from trader.api.ops_http import serve_ops_http
 from trader.app.logging_config import configure_file_logging
+from trader.config.runtime_security import validate_ops_runtime_security
 from trader.config.settings import settings
 from trader.data.db import get_session_factory, initialize_database
 
@@ -26,6 +27,7 @@ def main() -> None:
         default_error_file="ops-api-error.log",
     )
     args = parse_args()
+    validate_ops_runtime_security(settings)
     logger.info("ops_api_start host=%s port=%s mode=%s", args.host, args.port, settings.trade_mode)
     initialize_database()
     serve_ops_http(
