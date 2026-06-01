@@ -45,6 +45,8 @@ def test_set_exchange_credentials_encrypts_at_rest_and_returns_status():
     row = session.execute(select(UserExchangeCredential).where(UserExchangeCredential.user_id == user.id)).scalar_one()
     assert row.access_key_encrypted != VALID_ACCESS_KEY
     assert row.secret_key_encrypted != VALID_SECRET_KEY
+    assert row.access_key_encrypted.startswith("v2.")
+    assert row.secret_key_encrypted.startswith("v2.")
     assert row.key_version == "v1"
     assert VALID_ACCESS_KEY not in row.access_key_encrypted
     assert VALID_SECRET_KEY not in row.secret_key_encrypted

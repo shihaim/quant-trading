@@ -5,6 +5,9 @@ import hashlib
 import hmac
 import os
 
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 
 class SecretCryptoError(ValueError):
     """Credential encryption/decryption error."""
@@ -47,17 +50,13 @@ def encrypt_secret(plaintext: str, *, encryption_key: str) -> str:
         raise SecretCryptoError("plaintext_required")
     raw = str(plaintext).encode("utf-8")
     key = _derive_key(encryption_key)
-    nonce = os.urandom(16)
-    cipher = _xor_bytes(raw, _keystream(key=key, nonce=nonce, length=len(raw)))
-    tag = hmac.new(key, b"v1" + nonce + cipher, hashlib.sha256).digest()
-    return f"v1.{_b64encode(nonce)}.{_b64encode(cipher)}.{_b64encode(tag)}"
+    nonce = os.urandom(12)
+    cipher = AESGCM(key).encrypt(nonce, raw, b"v2")
+    return f"v2.{_b64encode(nonce)}.{_b64encode(cipher)}"
 
 
-def decrypt_secret(token: str, *, encryption_key: str) -> str:
+def _decrypt_v1_secret(token: str, *, encryption_key: str) -> str:
     key = _derive_key(encryption_key)
-    if not token:
-        raise SecretCryptoError("ciphertext_required")
-
     try:
         version, nonce_b64, cipher_b64, tag_b64 = token.split(".", 3)
     except ValueError as exc:
@@ -81,3 +80,43 @@ def decrypt_secret(token: str, *, encryption_key: str) -> str:
         return raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise SecretCryptoError("invalid_plaintext_encoding") from exc
+
+
+def _decrypt_v2_secret(token: str, *, encryption_key: str) -> str:
+    key = _derive_key(encryption_key)
+    try:
+        version, nonce_b64, cipher_b64 = token.split(".", 2)
+    except ValueError as exc:
+        raise SecretCryptoError("invalid_ciphertext_format") from exc
+    if version != "v2":
+        raise SecretCryptoError("unsupported_ciphertext_version")
+
+    try:
+        nonce = _b64decode(nonce_b64)
+        cipher = _b64decode(cipher_b64)
+    except Exception as exc:
+        raise SecretCryptoError("invalid_ciphertext_encoding") from exc
+
+    try:
+        raw = AESGCM(key).decrypt(nonce, cipher, b"v2")
+    except InvalidTag as exc:
+        raise SecretCryptoError("ciphertext_auth_failed") from exc
+    except Exception as exc:
+        raise SecretCryptoError("invalid_ciphertext_encoding") from exc
+
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SecretCryptoError("invalid_plaintext_encoding") from exc
+
+
+def decrypt_secret(token: str, *, encryption_key: str) -> str:
+    if not token:
+        raise SecretCryptoError("ciphertext_required")
+
+    version = str(token).split(".", 1)[0]
+    if version == "v1":
+        return _decrypt_v1_secret(token, encryption_key=encryption_key)
+    if version == "v2":
+        return _decrypt_v2_secret(token, encryption_key=encryption_key)
+    raise SecretCryptoError("unsupported_ciphertext_version")
